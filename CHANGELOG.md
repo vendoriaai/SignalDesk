@@ -5,6 +5,22 @@ All notable changes to SignalDesk are documented here.
 ## [Unreleased]
 
 ### Added
+- **Signal-quality package (pre-registered as trial T1):** the first real
+  outcome sample (76 resolved, −0.35R expectancy, 0% TP1 hits, 20/20 losing
+  market-order entries, 91 same-day duplicate bets) drove three changes,
+  declared via the new trial log before they start producing signals:
+  - Emission dedupe (trial T1): the ledger keeps only the **first signal per
+    (market, symbol, decision day)** — the same idea re-emitted later the
+    same day (refined entry plan, re-run scan) is one bet, not a new one.
+    Backfill imports history as-recorded.
+  - Signal-time context frozen into every ledger record: 24h change (chase
+    intensity), volume vs 30d average, RSI(14), SMA20/SMA50 distance %, and
+    BTC 20d momentum (crypto) — the conditioning features the first sample
+    lacked, enabling regime/chase analyses after the fact.
+  - Trial log (roadmap item 33 foundation): `signaldesk trial add|list|close`
+    over append-only `trials.jsonl` — declare hypothesis, change, judging
+    criteria and minimum sample BEFORE a change runs; criteria are never
+    edited afterwards (rule R7).
 - **Live mark-to-market for open signals (WF-5):** open signals now show
   where they stand right now instead of a blank `+0.00R`: the current price
   and the P&L as a % of entry (plus unrealized R), colored green/red. The

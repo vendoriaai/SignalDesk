@@ -143,8 +143,14 @@ Every emitted signal is appended to `<data_dir>/signals.jsonl` (module
 `ledger.py`) with the levels actually acted on (refined plan when it is
 actionable, otherwise daily), the risk unit, the assumed round-trip cost and
 its cost-in-R, a sha256 of the OHLCV CSV it was derived from, the decision bar
-date, and a fingerprint of the scoring weights. Demo-data runs are recorded
-with `demo=true` so they can be excluded from statistics.
+date, a fingerprint of the scoring weights, and a `context` dict of
+signal-time regime features (24h change, volume vs 30d average, RSI(14),
+SMA20/SMA50 distance %, BTC 20d momentum for crypto — trial T1 enrichment,
+frozen at decision time for later conditioning analyses). Emission is
+deduplicated (trial T1): only the first signal per (market, symbol, decision
+day) is recorded — the same idea re-emitted later the same day is one bet,
+not a new one. Backfill imports history as-recorded, without dedupe. Demo-data
+runs are recorded with `demo=true` so they can be excluded from statistics.
 
 `signaldesk outcomes` resolves each record against subsequent daily bars with a
 triple-barrier resolver (`outcomes.py`): TP1, TP2, stop, or the time barrier

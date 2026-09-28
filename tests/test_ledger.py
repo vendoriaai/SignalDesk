@@ -134,3 +134,90 @@ def test_scan_writes_ledger_records(tmp_path):
         assert rec.cost_pct > 0 and rec.risk > 0
         assert rec.weights_hash
     assert {r.symbol for r in records} == {s.symbol for s in run.report.signals}
+
+
+def test_record_freezes_signal_time_context():
+    recs = ledger.record_report(
+        _report(), "run1", market="crypto",
+        contexts={"BTCUSD": {"change_24h_pct": 5.2, "rsi14": float("nan"),
+                             "btc_mom_20d_pct": -1.5}})
+    assert recs[0].context == {"change_24h_pct": 5.2, "btc_mom_20d_pct": -1.5}
+
+
+def test_context_defaults_to_empty_for_old_records():
+    recs = ledger.record_report(_report(), "run1", market="crypto")
+    assert recs[0].context == {}
+
+
+def test_dedupe_keeps_first_signal_per_symbol_day(tmp_path):
+    path = tmp_path / "signals.jsonl"
+    first = ledger.record_report(_report(), "run1", market="crypto",
+                                 bars_last_dates={"BTCUSD": "2026-09-26"})
+    refined = ledger.record_report(_report([_signal(score=85.0)]), "run2", market="crypto",
+                                   bars_last_dates={"BTCUSD": "2026-09-26"})  # same day
+    next_day = ledger.record_report(_report([_signal(score=84.0)]), "run3", market="crypto",
+                                    bars_last_dates={"BTCUSD": "2026-09-27"})
+
+    assert ledger.append_records(path, first, dedupe=True) == 1
+    assert ledger.append_records(path, refined, dedupe=True) == 0   # same idea, same day
+    assert ledger.append_records(path, next_day, dedupe=True) == 1  # new day is a new bet
+    assert {r.signal_id for r in ledger.read_records(path)} == {"run1:BTCUSD", "run3:BTCUSD"}
+
+
+def test_dedupe_off_by_default(tmp_path):
+    path = tmp_path / "signals.jsonl"
+    recs = ledger.record_report(_report(), "run1", market="crypto",
+                                bars_last_dates={"BTCUSD": "2026-09-26"})
+    again = ledger.record_report(_report([_signal(score=90.0)]), "run2", market="crypto",
+                                 bars_last_dates={"BTCUSD": "2026-09-26"})
+    assert ledger.append_records(path, recs) == 1
+    assert ledger.append_records(path, again) == 1       # backfill imports keep history as-is
+    assert len(ledger.read_records(path)) == 2
+
+
+def test_scan_emission_dedupes_same_day_rescans(tmp_path):
+    """A second scan the same day must not duplicate the symbol-day bet."""
+    from signaldesk.agent.events import EventBus
+    from signaldesk.tools import demo
+    from signaldesk.workflows.market_scan import MarketScanRequest, ToolSet, run_market_scan
+
+    d = tmp_path / "artifacts"
+
+    def tools():
+        return ToolSet(
+            movers=demo.DemoMoversTool(d, "crypto"), quotes=demo.DemoQuotesTool(d, "crypto"),
+            ohlcv=demo.DemoOHLCVTool(d, "crypto"), search=demo.DemoSearchTool(),
+            fear_greed=demo.DemoFearGreedTool(d), altseason=demo.DemoAltSeasonTool(d),
+        )
+
+    run_market_scan(MarketScanRequest(market="crypto", universe_size=4),
+                    tools(), EventBus(), tmp_path)
+    first = ledger.read_records(ledger.default_ledger_path(tmp_path))
+    assert first
+    run_market_scan(MarketScanRequest(market="crypto", universe_size=4),
+                    tools(), EventBus(), tmp_path)       # same day, same symbols
+    second = ledger.read_records(ledger.default_ledger_path(tmp_path))
+    assert len(second) == len(first)                     # nothing added
+    assert {r.signal_id for r in second} == {r.signal_id for r in first}
+
+
+def test_scan_freezes_context_into_records(tmp_path):
+    from signaldesk.agent.events import EventBus
+    from signaldesk.tools import demo
+    from signaldesk.workflows.market_scan import MarketScanRequest, ToolSet, run_market_scan
+
+    d = tmp_path / "artifacts"
+    tools = ToolSet(
+        movers=demo.DemoMoversTool(d, "crypto"), quotes=demo.DemoQuotesTool(d, "crypto"),
+        ohlcv=demo.DemoOHLCVTool(d, "crypto"), search=demo.DemoSearchTool(),
+        fear_greed=demo.DemoFearGreedTool(d), altseason=demo.DemoAltSeasonTool(d),
+    )
+    run_market_scan(MarketScanRequest(market="crypto", universe_size=4),
+                    tools, EventBus(), tmp_path)
+    records = ledger.read_records(ledger.default_ledger_path(tmp_path))
+    assert records
+    for rec in records:
+        assert "change_24h_pct" in rec.context           # chase intensity
+        assert "volume_ratio" in rec.context
+        assert "sma20_dist_pct" in rec.context
+        assert "btc_mom_20d_pct" in rec.context          # crypto scans carry the market regime

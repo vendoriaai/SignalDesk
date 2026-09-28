@@ -86,9 +86,16 @@ much of your signal sample sits on no-longer-active names — `signaldesk
 outcomes` attaches that caveat to the statistics until enough post-screen
 signals accumulate.
 
-Judge a preset change on that output, on the *same* signal set, with the sample
-size caveats it prints (fewer than ~4 independent weeks or n < 100 cannot
-distinguish a real improvement from noise) — not on the in-sample score.
+Judge a preset change on that output, on the *same* signal set, with the
+sample size caveats it prints (fewer than ~4 independent weeks or n < 100 cannot
+distinguish a real improvement from noise) — not on the in-sample score. And
+before you change anything: pre-register it. `signaldesk trial add` freezes
+the hypothesis, the judging criteria and a minimum sample into
+`trials.jsonl`; the outcome layer judges it when the minimum is met, and the
+declared criteria are never edited afterwards. Each ledger record also
+freezes its signal-time context (24h change, volume ratio, RSI, SMA
+distances, BTC 20d momentum), so conditioning analyses ("do signals fired
+after a pump do worse?") are possible without re-deriving history.
 
 ## Writing your own preset
 

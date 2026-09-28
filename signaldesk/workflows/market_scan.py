@@ -504,14 +504,50 @@ def run_market_scan(req: MarketScanRequest, tools: ToolSet, bus: EventBus, run_d
     # ---- Ledger: freeze every emitted signal for later outcome scoring --------
     bars_last = {sym: str(row.get("as_of") or "") for sym, row in features_df.iterrows()}
     data_hashes = {sym: ledger_mod.sha256_file(paths[0]) for sym, paths in ohlcv_paths.items()}
+
+    # Signal-time context (trial T1 enrichment): the regime/chase numbers a
+    # later conditioning analysis needs, frozen at decision time. Missing
+    # pieces are simply omitted — never guessed.
+    contexts: dict[str, dict[str, float]] = {}
+    quotes_by_sym = {str(row.symbol): row for row in quotes_df.itertuples()}
+    btc_mom = None
+    if market == "crypto" and "BTCUSD" in ohlcv_paths:
+        try:
+            btc_daily = pd.read_csv(ohlcv_paths["BTCUSD"][0])
+            if len(btc_daily) > 20:
+                closes = btc_daily["close"].astype(float)
+                btc_mom = float(closes.iloc[-1] / closes.iloc[-21] - 1) * 100.0
+        except Exception:
+            btc_mom = None
+    for sym, row in features_df.iterrows():
+        ctx: dict[str, float] = {}
+        q = quotes_by_sym.get(sym)
+        if q is not None and getattr(q, "change_24h_pct", None) is not None:
+            ctx["change_24h_pct"] = float(q.change_24h_pct)
+        vol, vol_avg = _f(row.get("volume")), _f(row.get("volume_avg30"))
+        if math.isfinite(vol_avg) and vol_avg > 0 and math.isfinite(vol):
+            ctx["volume_ratio"] = vol / vol_avg
+        for k in ("rsi14", "sma20", "sma50", "atr14"):
+            v = _f(row.get(k))
+            if math.isfinite(v):
+                ctx[k] = v
+        close_v, sma20_v, sma50_v = _f(row.get("close")), _f(row.get("sma20")), _f(row.get("sma50"))
+        if math.isfinite(close_v) and math.isfinite(sma20_v) and sma20_v:
+            ctx["sma20_dist_pct"] = (close_v / sma20_v - 1.0) * 100.0
+        if math.isfinite(close_v) and math.isfinite(sma50_v) and sma50_v:
+            ctx["sma50_dist_pct"] = (close_v / sma50_v - 1.0) * 100.0
+        if btc_mom is not None:
+            ctx["btc_mom_20d_pct"] = btc_mom
+        contexts[sym] = ctx
+
     ledger_records = ledger_mod.record_report(
         report, run_dir.name, market=market,
         data_hashes=data_hashes, bars_last_dates=bars_last,
         cost_pcts={s.symbol: s.cost_pct for s in signals},
-        demo=demo_mode,
+        demo=demo_mode, contexts=contexts,
     )
     ledger_file = ledger_mod.default_ledger_path(run_dir)
-    written = ledger_mod.append_records(ledger_file, ledger_records)
+    written = ledger_mod.append_records(ledger_file, ledger_records, dedupe=True)
     if written:
         bus.emit("P8", EventKind.RESULT,
                  f"ledger: {written} signal(s) recorded -> {ledger_file}")

@@ -135,6 +135,9 @@ durable rules beyond what the docs below state.
   picks — declared floors, cited, missing tape kept; point-in-time
   survivorship audit via `signaldesk universe`, cached in
   `universe_audit.json` and attached as a caveat to outcome statistics),
+  `trials.py` (trial log, item 33: pre-registered rule changes in
+  `trials.jsonl` via `signaldesk trial add|list|close`; criteria frozen at
+  declaration),
   `watchlists.py` (local JSON store), `store.py` (SQLite/SQLModel cache),
   `userconfig.py` (keychain secrets: LLM incl. OpenRouter, search, data, Supabase tokens),
   `sync.py` (Supabase REST, consent-gated), `api.py` (FastAPI + WS + chart

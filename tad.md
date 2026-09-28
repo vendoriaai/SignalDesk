@@ -96,7 +96,7 @@ Vite + React (or Vue): Chat view with streaming step cards (Search / Tool call /
 ### 3.7 `packaging/`
 GitHub Actions matrix (windows-latest, macos-14, ubuntu-latest): pip → PyInstaller spec → installer build → artifact publish to GitHub Releases. Auto-update via a tiny update-manifest check (TUF-style; v1 can ship manual download).
 
-### 3.8 Measurement layer — `costs.py` · `ledger.py` · `outcomes.py` · `metrics.py` · `resolver.py` · `scheduler.py` · `paper.py` · `mtm.py` · `universe.py`
+### 3.8 Measurement layer — `costs.py` · `ledger.py` · `outcomes.py` · `metrics.py` · `resolver.py` · `scheduler.py` · `paper.py` · `mtm.py` · `universe.py` · `trials.py`
 Deliberately framework-free (no backtesting engine): signals are discrete
 records with levels, so the honest evaluation is a resolver over OHLCV
 artifacts, not a position-accounting engine.
@@ -107,8 +107,12 @@ artifacts, not a position-accounting engine.
   `source_tool="cost_model"`; never presented as market data.
 - `ledger.py` — append-only `signals.jsonl`: actionable levels + entry mode,
   risk and risk%, cost-in-R, sha256 of the OHLCV snapshot, decision bar date,
-  scoring-weights fingerprint, demo flag, app version. `backfill()` imports
-  `runs/*/report.json` so historical signals are scoreable immediately.
+  scoring-weights fingerprint, demo flag, app version, and a signal-time
+  `context` dict (24h change, volume ratio, RSI, SMA distances, BTC 20d
+  momentum). Scan emission dedupes to the first signal per
+  (market, symbol, decision day) — trial T1; `backfill()` imports
+  `runs/*/report.json` as-recorded so historical signals are scoreable
+  immediately.
 - `outcomes.py` — triple-barrier resolver (TP1/TP2/stop/time barrier; next-bar
   start; pessimistic same-bar tie-break; MFE/MAE; three pre-computed R variants
   so alternative exit policies can be scored without re-resolving).
@@ -141,6 +145,11 @@ artifacts, not a position-accounting engine.
   per `MIN_REFRESH_INTERVAL_S` so request handlers never hammer the quote
   source. A snapshot, not a resolution: barriers still confirm only on
   closed daily bars; a fully degraded fetch keeps the previous snapshot (R4).
+- `trials.py` — the trial log (item 33): append-only `trials.jsonl` of
+  pre-registered rule changes (hypothesis, change, judging criteria, minimum
+  sample) with close-out; surfaced by `signaldesk trial add|list|close`.
+  Criteria freeze at declaration time and outcomes are judged on the outcome
+  layer only (R7).
 - `universe.py` — universe integrity (item 29): the liquidity screen applied
   to WF Phase 2 movers picks (declared per-market floors, cited as
   `source_tool="liquidity_screen"`; a missing tape keeps the name) and the

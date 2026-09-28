@@ -84,9 +84,10 @@ outcome layer, not by in-sample score.
     without re-resolving.
 32. Regime gate: 200-day (10-month) trend filter plus an extremes-only
     volatility filter (continuous vol targeting failed out-of-sample).
-33. Validation discipline: trial log + pre-registration for every rule change;
-    deflated Sharpe / PBO once >20 trials are logged; purged CV only if
-    parameters start being fitted.
+33. Trial log + pre-registration shipped 2026-09-28 (`signaldesk trial
+    add|list|close`, append-only `trials.jsonl`; first trial T1 = emission
+    dedupe + context enrichment). Remaining: deflated Sharpe / PBO once >20
+    trials are logged; purged CV only if parameters start being fitted.
 34. Backtest validation module (vectorbt) feeding calibrated confidence into scoring.
 35. MCP client support for community finance servers.
 36. Scheduled background scans + OS notifications; watchlist alerts.

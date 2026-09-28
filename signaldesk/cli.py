@@ -29,6 +29,9 @@ app.add_typer(wl_app, name="watchlist")
 paper_app = typer.Typer(help="Log paper-trade executions against ledger signals (WF-5).")
 app.add_typer(paper_app, name="paper")
 
+trial_app = typer.Typer(help="Pre-register signal-generation changes and judge them (roadmap item 33).")
+app.add_typer(trial_app, name="trial")
+
 
 # --------------------------------------------------------------------------
 # tool factories
@@ -614,6 +617,52 @@ def ledger_read(config: Config) -> list:
     from signaldesk import ledger as ledger_mod
 
     return ledger_mod.read_records(ledger_mod.ledger_path(config.data_dir))
+
+
+@trial_app.command("add")
+def trial_add(
+    name: str = typer.Option(..., "--name", "-n", help="Short trial name."),
+    hypothesis: str = typer.Option(..., "--hypothesis", "-H",
+                                   help="What you believe will happen and why."),
+    change: str = typer.Option(..., "--change", "-c", help="Exactly what changed."),
+    judging: str = typer.Option(..., "--judging", "-j",
+                                help="Pre-committed criteria (metric, threshold, comparison)."),
+    min_signals: int = typer.Option(30, "--min-signals", min=1),
+    min_weeks: int = typer.Option(4, "--min-weeks", min=1),
+) -> None:
+    """Pre-register a rule change BEFORE it starts producing signals (R7)."""
+    from signaldesk import trials as trials_mod
+
+    trial = trials_mod.log_trial(
+        Config.from_env().data_dir, name=name, hypothesis=hypothesis,
+        change=change, judging=judging, min_signals=min_signals,
+        min_weeks=min_weeks)
+    typer.echo(f"registered {trial['id']}: {trial['name']}")
+    typer.echo("criteria are frozen now — judge it on `signaldesk outcomes` when the minimum is met")
+
+
+@trial_app.command("list")
+def trial_list() -> None:
+    """Show the trial log (running and closed trials)."""
+    from signaldesk import trials as trials_mod
+
+    typer.echo(trials_mod.render_text(trials_mod.read_trials(Config.from_env().data_dir)))
+
+
+@trial_app.command("close")
+def trial_close(
+    trial_id: str = typer.Argument(..., help="Trial id, e.g. T1."),
+    outcome: str = typer.Option(..., "--outcome", "-o",
+                                help="The pre-committed judgement, against the logged criteria."),
+) -> None:
+    """Close a trial with its outcome (the declared criteria are never edited)."""
+    from signaldesk import trials as trials_mod
+
+    closed = trials_mod.close_trial(Config.from_env().data_dir, trial_id, outcome)
+    if closed is None:
+        typer.secho(f"no trial '{trial_id}'", err=True, fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+    typer.echo(f"closed {closed['id']}: {closed['outcome']}")
 
 
 @app.command()

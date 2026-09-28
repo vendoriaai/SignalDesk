@@ -103,6 +103,8 @@ signaldesk paper fill <id> -p 101.2  # paper log: signal taken at 101.2 (entry-g
 signaldesk paper miss <id>           # paper log: signal skipped / never filled
 signaldesk paper list                # fill rate, entry slippage in R
 signaldesk universe                  # survivorship audit of every past run's universe
+signaldesk trial add                 # pre-register a rule change (hypothesis + judging criteria)
+signaldesk trial list                # the trial log (running and closed trials)
 
 # inspect the agent's execution trace:
 signaldesk scan crypto --trace       # JSONL events

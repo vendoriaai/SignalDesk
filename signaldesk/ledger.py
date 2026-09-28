@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -54,6 +55,7 @@ class LedgerRecord(BaseModel):
     demo: bool = False                # synthetic data — excluded from stats
     app_version: str = ""
     snapshots: list[str] = Field(default_factory=list)
+    context: dict[str, float] = Field(default_factory=dict)  # signal-time regime/chase context
 
 
 def sha256_file(path: Path | str) -> str:
@@ -96,13 +98,34 @@ def read_ids(path: Path) -> set[str]:
     return {r.signal_id for r in read_records(path)}
 
 
-def append_records(path: Path, records: list[LedgerRecord]) -> int:
-    """Append new records; ids already present are skipped. Returns count written."""
+def append_records(path: Path, records: list[LedgerRecord], *,
+                   dedupe: bool = False) -> int:
+    """Append new records; ids already present are skipped. Returns count written.
+
+    With `dedupe=True` (the scan-emission policy, trial T1) only the first
+    signal per (market, symbol, decision date) is kept: the same idea
+    re-emitted later the same day — a refined entry plan, a re-run scan — is
+    one bet, not a new one, and must not inflate the outcome sample.
+    """
     path = Path(path)
     if not records:
         return 0
     existing = read_ids(path)
-    fresh = [r for r in records if r.signal_id not in existing]
+    seen_keys: set[tuple[str, str, str]] = set()
+    if dedupe:
+        for rec in read_records(path):
+            if rec.bars_last_date:
+                seen_keys.add((rec.market, rec.symbol, rec.bars_last_date))
+    fresh: list[LedgerRecord] = []
+    for rec in records:
+        if rec.signal_id in existing:
+            continue
+        if dedupe and rec.bars_last_date:
+            key = (rec.market, rec.symbol, rec.bars_last_date)
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+        fresh.append(rec)
     if not fresh:
         return 0
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -124,7 +147,8 @@ def actionable_levels(signal) -> tuple[float, float, float, float, str]:
 def record_for_signal(report, signal, run_id: str, *, market: str,
                       data_hash: str = "", bars_last_date: str = "",
                       demo: bool = False, source: str = "scan",
-                      cost_pct: float | None = None) -> LedgerRecord:
+                      cost_pct: float | None = None,
+                      context: dict[str, float] | None = None) -> LedgerRecord:
     entry, stop, tp1, tp2, mode = actionable_levels(signal)
     risk = entry - stop
     risk_pct = (risk / entry * 100.0) if entry else 0.0
@@ -151,6 +175,8 @@ def record_for_signal(report, signal, run_id: str, *, market: str,
         data_hash=data_hash, bars_last_date=bars_last_date,
         source=source, demo=demo,
         app_version=getattr(signaldesk, "__version__", ""),
+        context={k: round(float(v), 6) for k, v in (context or {}).items()
+                 if isinstance(v, (int, float)) and math.isfinite(v)},
     )
 
 
@@ -159,19 +185,22 @@ def record_report(report, run_id: str, *, market: str | None = None,
                   bars_last_dates: dict[str, str] | None = None,
                   cost_pcts: dict[str, float] | None = None,
                   demo: bool = False, source: str = "scan",
-                  signals: list | None = None) -> list[LedgerRecord]:
+                  signals: list | None = None,
+                  contexts: dict[str, dict[str, float]] | None = None) -> list[LedgerRecord]:
     """Ledger records for a report's signals (ScanReport.signals by default)."""
     mkt = market or getattr(report, "market", "")
     data_hashes = data_hashes or {}
     bars_last_dates = bars_last_dates or {}
     cost_pcts = cost_pcts or {}
+    contexts = contexts or {}
     items = signals if signals is not None else getattr(report, "signals", [])
     return [
         record_for_signal(report, s, run_id, market=mkt,
                           data_hash=data_hashes.get(s.symbol, ""),
                           bars_last_date=bars_last_dates.get(s.symbol, ""),
                           demo=demo, source=source,
-                          cost_pct=cost_pcts.get(s.symbol))
+                          cost_pct=cost_pcts.get(s.symbol),
+                          context=contexts.get(s.symbol))
         for s in items
     ]
 
