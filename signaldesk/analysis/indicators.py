@@ -71,6 +71,7 @@ def compute_features(df: pd.DataFrame) -> dict:
     close, high, low, vol = df["close"], df["high"], df["low"], df["volume"]
     rsi14 = rsi_wilder(close)
     sma20, sma50 = sma(close, 20), sma(close, 50)
+    sma200 = sma(close, 200)   # NaN below 200 bars — 200d regime gate unevaluated
     ema9, ema21 = ema(close, 9), ema(close, 21)
     macd_line, macd_sig, macd_hist = macd(close)
     atr14 = atr_wilder(high, low, close)
@@ -84,6 +85,7 @@ def compute_features(df: pd.DataFrame) -> dict:
         "rsi14": _last(rsi14),
         "sma20": _last(sma20),
         "sma50": _last(sma50),
+        "sma200": _last(sma200),
         "ema9": _last(ema9),
         "ema21": _last(ema21),
         "macd": _last(macd_line),

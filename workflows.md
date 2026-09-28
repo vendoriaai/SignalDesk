@@ -54,7 +54,8 @@ This document defines the agent's executable workflows step-by-step, derived fro
 
 ### Phase 6 — Per-Candidate Catalyst Research (web)
 13. For the top ~5 technical candidates, batched queries: "{name} price surge news catalyst", "{name} news {month year}", plus sector flows ("spot bitcoin ETF flows this week").
-14. Extract catalyst claims per asset → `catalysts[symbol][]` citations: the first hit's article text is fetched (same mechanism/budget as Phase 1; snippet stays the fallback), cited as `column="extracted_text"` when the page was read.  *(Reference: SUI institutional staking/CME futures; TAO AI-narrative; AAVE RWA/news; ETF inflow headlines.)*
+14. Extract catalyst claims per asset → `catalysts[symbol][]` citations: the first hit's article text is fetched (same mechanism/budget as Phase 1; snippet stays the fallback), cited as `column="extracted_text"` when the page was read.
+14b. **Regime gates** (item 32, trial T2): before a signal is emitted, the candidate must pass the declared gates — price above its 200d SMA, annualized vol <= 150%, 7d gain <= +50%, price <= 25% over SMA20; BTC below its 200d SMA caps the whole crypto book. Gated candidates move to `avoid[]` with the triggering value registered as a derived citation; <200d-history names are disclosed as unevaluated (R4).  *(Reference: SUI institutional staking/CME futures; TAO AI-narrative; AAVE RWA/news; ETF inflow headlines.)*
 
 ### Phase 7 — Scoring & Signal Construction
 15. Score each symbol via `strategy/scoring.py` (versioned preset `trend-momentum-v1`):

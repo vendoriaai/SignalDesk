@@ -82,8 +82,12 @@ outcome layer, not by in-sample score.
     larger first tranche + structure trail, and test a time stop; the outcome
     layer already stores `r_all_in` / `r_runner` so policies can be re-scored
     without re-resolving.
-32. Regime gate: 200-day (10-month) trend filter plus an extremes-only
-    volatility filter (continuous vol targeting failed out-of-sample).
+32. ✅ **Shipped 2026-09-29** — Regime gate, pre-registered as trial T2:
+    200-day trend filter (per symbol; BTC below its 200d SMA caps the whole
+    crypto book) plus an extremes-only volatility filter (>150% annualized),
+    extended with an anti-chase extension cap (7d gain > +50% or price > 25%
+    over SMA20 — the audit's 0/20 chase failure mode). Continuous vol
+    targeting stays out (failed out-of-sample).
 33. Trial log + pre-registration shipped 2026-09-28 (`signaldesk trial
     add|list|close`, append-only `trials.jsonl`; first trial T1 = emission
     dedupe + context enrichment). Remaining: deflated Sharpe / PBO once >20

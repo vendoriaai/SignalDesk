@@ -130,8 +130,8 @@ to `~/.signaldesk/signaldesk.db` (SQLite).
 2. **Universe**: majors + top gainers/losers, capped (default 12 symbols)
 3. **Data pull**: quotes snapshot + ~6 months daily OHLCV per symbol
 4. **Sandbox compute**: RSI, SMA/EMA stack, MACD + histogram, ATR, annualized
-   volatility, 3/7/30d returns, 20d swing high/low — in a sub-process with an
-   import whitelist and a 60 s timeout
+   volatility, 3/7/30d returns, 20d swing high/low, 200d SMA — in a
+   sub-process with an import whitelist and a 60 s timeout
 5. **Sentiment**: Fear & Greed; Altcoin Season computed CoinGecko-native
    (share of the top-50 alts outperforming BTC over 30d)
 6. **Catalysts**: per-candidate news research for the top scorers, quoting

@@ -38,6 +38,13 @@ SENTIMENT_NEUTRAL = 5.0      # Fear & Greed 45-55
 MIN_RISK_ATR_MULT = 0.75     # R floor in ATR(14, decision timeframe) units
 MIN_RISK_COST_MULT = 15.0    # R floor in round-trip-cost units (~0.067R of cost)
 
+# --- regime gates (roadmap item 32, trial T2) -------------------------------
+# Declared thresholds, cited in reports. A long-only engine must refuse longs
+# when the regime or the candidate's own extension makes the chase the trade.
+REGIME_VOL_EXTREME_ANN_PCT = 150.0   # annualized vol above this = mania/panic
+REGIME_MAX_7D_GAIN_PCT = 50.0        # 7d return above this = parabolic
+REGIME_MAX_SMA20_DIST_PCT = 25.0     # price this far above SMA20 = extended
+
 
 @dataclass
 class SymbolFeatures:
@@ -168,6 +175,75 @@ def usd_leg(symbol: str) -> str:
     if s.startswith(("XAU", "XAG", "XPT")):
         return "metal"
     return "base" if s.startswith("USD") else "quote"
+
+
+def _feat_val(feat, key: str) -> float | None:
+    v = feat.get(key) if hasattr(feat, "get") else getattr(feat, key, None)
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return None
+    return v if math.isfinite(v) else None
+
+
+@dataclass
+class RegimeVerdict:
+    """Outcome of the item-32 regime gates for one symbol."""
+    reason: str = ""              # "" = the long is permitted
+    value: float | None = None    # triggering number, for the derived citation
+    column: str = ""              # feature column the number came from
+    formula: str = ""             # formula string for the derived citation
+
+
+def regime_gate(feat) -> RegimeVerdict:
+    """Why a symbol fails the regime gates (item 32, trial T2), or a passing
+    verdict.
+
+    `feat` is a features row (close, sma200, sma20, vol_ann, ret_7d). NaN or
+    missing values mean "cannot judge" and never gate on their own — a short
+    200d history is disclosed at report level instead (R4).
+    """
+    close = _feat_val(feat, "close")
+    vol_ann = _feat_val(feat, "vol_ann")
+    if vol_ann is not None and vol_ann > REGIME_VOL_EXTREME_ANN_PCT:
+        return RegimeVerdict(
+            reason=(f"annualized volatility {vol_ann:.0f}% exceeds the "
+                    f"{REGIME_VOL_EXTREME_ANN_PCT:.0f}% extremes gate — "
+                    "mania/panic regime, longs refused"),
+            value=vol_ann, column="vol_ann",
+            formula="annualized vol = stdev(20d returns) x sqrt(365) x 100")
+    ret_7d = _feat_val(feat, "ret_7d")
+    if ret_7d is not None and ret_7d > REGIME_MAX_7D_GAIN_PCT:
+        return RegimeVerdict(
+            reason=(f"7d return +{ret_7d:.0f}% exceeds the "
+                    f"{REGIME_MAX_7D_GAIN_PCT:.0f}% parabolic-extension gate — "
+                    "buying it is chasing, not an edge"),
+            value=ret_7d, column="ret_7d", formula="(close / close[-7d] - 1) x 100")
+    sma20 = _feat_val(feat, "sma20")
+    if close is not None and sma20 is not None and sma20 > 0:
+        dist = (close / sma20 - 1.0) * 100.0
+        if dist > REGIME_MAX_SMA20_DIST_PCT:
+            return RegimeVerdict(
+                reason=(f"price {dist:.0f}% above SMA20 exceeds the "
+                        f"{REGIME_MAX_SMA20_DIST_PCT:.0f}% extension gate — "
+                        "extended, wait for the mean"),
+                value=dist, column="sma20_dist_pct",
+                formula="(close / SMA20 - 1) x 100")
+    sma200 = _feat_val(feat, "sma200")
+    if close is not None and sma200 is not None and sma200 > 0 and close < sma200:
+        return RegimeVerdict(
+            reason="price below its 200d SMA — long-only trend gate refuses the long",
+            value=close / sma200, column="close_over_sma200",
+            formula="close / SMA200 (< 1 refuses the long)")
+    return RegimeVerdict()
+
+
+def market_regime_below_trend(btc_feat) -> bool:
+    """True when BTC's own 200d trend is down — caps the whole crypto book
+    (long-only engine in a bear regime, item 32)."""
+    close = _feat_val(btc_feat, "close")
+    sma200 = _feat_val(btc_feat, "sma200")
+    return close is not None and sma200 is not None and sma200 > 0 and close < sma200
 
 
 def _assemble(f: SymbolFeatures, trend: float, momentum: float,

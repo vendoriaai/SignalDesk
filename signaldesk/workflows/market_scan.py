@@ -420,6 +420,26 @@ def run_market_scan(req: MarketScanRequest, tools: ToolSet, bus: EventBus, run_d
     signals: list[Signal] = []
     avoid: list[AvoidEntry] = []
     cost_cite_ids: dict[str, str] = {}
+
+    # Regime gates (item 32, trial T2): a long-only engine refuses longs when
+    # the market trend, volatility extremes or the candidate's own extension
+    # say the trade is a chase. Gated symbols land in the avoid list, cited.
+    market_regime_reason = ""
+    btc_gate_cite = None
+    if market == "crypto" and "BTCUSD" in features_df.index \
+            and scoring.market_regime_below_trend(features_df.loc["BTCUSD"]):
+        market_regime_reason = ("market regime: BTC below its 200d SMA — the "
+                                "long-only engine stands down (item 32)")
+        btc_close = _f(features_df.loc["BTCUSD"].get("close"))
+        btc_sma200 = _f(features_df.loc["BTCUSD"].get("sma200"))
+        if "BTCUSD" in price_cites and btc_sma200:
+            btc_gate_cite = registry.register_derived(
+                round(btc_close / btc_sma200, 4), "BTC 200d regime ratio",
+                formula="close / SMA200 (< 1 caps the whole crypto book)",
+                derived_from=[price_cites["BTCUSD"]]).id
+        bus.emit("P7", EventKind.WARN, "regime gate: BTC below 200d SMA — longs capped")
+
+    low_history = 0
     for sym, score in sorted(breakdowns.items(), key=lambda kv: kv[1].total, reverse=True):
         f = feats[sym]
         cites = [derived[sym]["rsi"], derived[sym]["macd_hist"], derived[sym]["atr"]]
@@ -445,6 +465,33 @@ def run_market_scan(req: MarketScanRequest, tools: ToolSet, bus: EventBus, run_d
                 symbol=sym,
                 reason=f"Fear & Greed {fng_value:.0f} — extreme greed caps all signals at HOLD",
                 citations=cites,
+            ))
+            continue
+        if market_regime_reason:
+            avoid.append(AvoidEntry(
+                symbol=sym,
+                reason=f"{market_regime_reason}"
+                       + (f" [{btc_gate_cite}]" if btc_gate_cite else ""),
+                citations=cites + ([btc_gate_cite] if btc_gate_cite else []),
+            ))
+            continue
+        verdict = scoring.regime_gate(features_df.loc[sym])
+        if not verdict.reason:
+            sma200_v = _f(features_df.loc[sym].get("sma200"))
+            if not math.isfinite(sma200_v):
+                low_history += 1          # <200d history: trend gate unevaluated (R4)
+        if verdict.reason:
+            gate_cite = None
+            if sym in price_cites:
+                gate_cite = registry.register_derived(
+                    round(verdict.value, 4) if verdict.value is not None else 0.0,
+                    f"{sym} regime gate: {verdict.column}",
+                    formula=verdict.formula, derived_from=[price_cites[sym]],
+                ).id
+            avoid.append(AvoidEntry(
+                symbol=sym,
+                reason=f"{verdict.reason} [{gate_cite}]" if gate_cite else verdict.reason,
+                citations=cites + ([gate_cite] if gate_cite else []),
             ))
             continue
         if score.total < req.min_score:
@@ -534,6 +581,24 @@ def run_market_scan(req: MarketScanRequest, tools: ToolSet, bus: EventBus, run_d
                 f"{sizing_mod.CLUSTER_CAP_RISK_PCT:g}% of account and were scaled "
                 f"down to {total:.2f}% total."
             )
+
+    # Regime-gate disclosures (item 32, trial T2)
+    if breakdowns:
+        disclosures.append(
+            "Regime gates (item 32, declared policy): longs refused below the "
+            "200d SMA, above "
+            f"{scoring.REGIME_VOL_EXTREME_ANN_PCT:g}% annualized volatility, above "
+            f"+{scoring.REGIME_MAX_7D_GAIN_PCT:g}% 7d gain, or more than "
+            f"{scoring.REGIME_MAX_SMA20_DIST_PCT:g}% over SMA20; BTC below its own "
+            "200d SMA caps the whole crypto book."
+        )
+    if market_regime_reason:
+        disclosures.append(f"Regime gate active: {market_regime_reason}")
+    if low_history:
+        disclosures.append(
+            f"Regime gate: {low_history} candidate(s) lack 200d history — the "
+            "trend gate is unevaluated for them, not assumed to pass (R4)."
+        )
 
     # ---- Phase 8: critique & synthesis ----------------------------------------
     preset_name = profile.preset if profile.preset == "crypto" else scoring.FX_PRESET_NAME

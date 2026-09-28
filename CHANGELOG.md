@@ -5,6 +5,15 @@ All notable changes to SignalDesk are documented here.
 ## [Unreleased]
 
 ### Added
+- **Regime gates (roadmap item 32, pre-registered as trial T2) — longs are
+  refused when the trade would be a chase:** signals land in the avoid list,
+  with cited trigger values, when any gate fires: price below its 200d SMA;
+  annualized volatility above 150% (mania/panic extremes); 7d return above
+  +50% (parabolic); price more than 25% over SMA20 (extension); and BTC
+  below its own 200d SMA caps the whole crypto book. Symbols with under 200d
+  of history are disclosed as unevaluated rather than assumed to pass.
+  Thresholds are declared policy (`strategy/scoring.py` REGIME_* constants),
+  cited in every report.
 - **News depth — the scan now reads the news instead of just finding it:**
   context and catalyst lines quote the linked article's own opening text
   (Tavily extract when a Tavily key is configured, otherwise a direct page
