@@ -81,6 +81,7 @@ When the user requests a durable behavior change, record it here or in the relev
 ## Child DOX Index
 
 Project tree after the P0 measurement work (2026-09-27, v1.0.0 + unreleased).
+Git: origin https://github.com/vendoriaai/SignalDesk, default branch `main`.
 No child AGENTS.md files: the tree is a single small package and the existing docs
 already own each boundary. Split out a child AGENTS.md when a subtree gains its own
 durable rules beyond what the docs below state.
@@ -93,9 +94,14 @@ durable rules beyond what the docs below state.
 - `roadmap.md` — phase plan; current position: Phase 4 done (packaging), P0 measurement foundation shipped, Phase 5 items 28–37 next
 - `data-model.sql` — Supabase schema + RLS (must be applied to the hosted project before /api/sync works)
 - `update-manifest.json` — current-release manifest (bump on every release; powers /api/update-check)
+- `logo.svg` / `logo.ico` — brand mark (indigo tile, white signal wave + node dot);
+  `logo.ico` (16–256 px frames, generated with Pillow) is the README header icon,
+  `logo.svg` stays as the vector source — regenerate the .ico from the svg geometry,
+  don't restyle one without the other
 - `mkdocs.yml` + `docs/` — docs site (quickstart, data sources, strategies, privacy)
 - `packaging/` — PyInstaller spec (`signaldesk.spec`, buildable: verified 104 MB Windows
-  bundle) + NSIS script (`signaldesk.nsi`); installers are built per-OS by CI
+  bundle), NSIS script (`signaldesk.nsi`), and `make_logo.py` (regenerates
+  `logo.ico` from the svg brand geometry); installers are built per-OS by CI
 - `.github/workflows/build-installers.yml` — tag-triggered win/mac/linux build + release
 - `evals/cases.json` — 30-case planner/workflow corpus (runner: `signaldesk/evals/runner.py`)
 - `signaldesk/` — Python package: `markets.py`, `agent/` (events, planner),

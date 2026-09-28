@@ -1,9 +1,12 @@
-<center>
-  <img src="logo.svg" alt="SignalDesk Logo" width="120"/>
-  <h1>SignalDesk</h1>
-</center>
+<div align="center">
 
-<center>
+<img src="logo.ico" alt="SignalDesk Logo" width="120"/>
+
+# SignalDesk
+
+</div>
+
+<div align="center">
 
 An open-source, cross-platform **AI market research & signal agent**: ask
 "scan the crypto market and find the best pair to trade now" and get a ranked,
@@ -17,7 +20,7 @@ trades.
 ![Status](https://img.shields.io/badge/status-Phase%204%20complete-brightgreen?style=flat-square)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=flat-square)
 
-</center>
+</div>
 
 **Status:** v1.0.0 — Phase 4 complete. Full agent (crypto WF-1, forex/metals
 WF-3, deep dives WF-2, watchlists WF-4), planner + eval harness, desktop app
