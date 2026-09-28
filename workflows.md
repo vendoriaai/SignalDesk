@@ -24,7 +24,7 @@ This document defines the agent's executable workflows step-by-step, derived fro
 
 ### Phase 2 — Universe Construction
 5. Call `market_gainers` and `market_losers` tools for the market; store CSVs as artifacts.
-6. Merge movers with the market's majors list (crypto: BTC, ETH, BNB, SOL, XRP + top gainers like SUI/TAO/AAVE/ENA from the reference run; forex: majors + crosses; metals: XAUUSD/XAGUSD) → `universe[]` (cap 20; user-adjustable).
+6. Merge movers with the market's majors list (crypto: BTC, ETH, BNB, SOL, XRP + top gainers like SUI/TAO/AAVE/ENA from the reference run; forex: majors + crosses; metals: XAUUSD/XAGUSD) → `universe[]` (cap 20; user-adjustable). Crypto movers picks pass a **liquidity screen** (item 29): rows below the declared floors — $5M 24h volume / $50M market cap, cited as `source_tool="liquidity_screen"` — are dropped and disclosed; a missing tape keeps the name (R4); FX/metals have no centralized tape and are not screened; demo scans skip the screen.
 
 ### Phase 3 — Market Data Pull
 7. `quotes`(universe) → snapshot CSV (price, 24h change %, day/year low/high, volume). Cite each price cell.

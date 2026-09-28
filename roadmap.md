@@ -65,10 +65,13 @@ outcome layer, not by in-sample score.
     paper ledger with execution-vs-model gap logging (`paper.py`:
     fill/miss decisions, entry slippage in R, missed fills, crypto funding
     drag). One shared pipeline (`resolver.py`) serves CLI, API and scheduler.
-29. Universe integrity: liquidity filter using the volume/market_cap columns the
-    movers tool already fetches; point-in-time universe comparison (incl.
-    delisted/dormant names) to size the selection/survivorship bias before
-    trusting any historical expectancy.
+29. ✅ **Shipped 2026-09-28** — Universe integrity: liquidity screen on movers
+    picks (declared floors — crypto $5M 24h volume / $50M market cap, cited in
+    the report; a missing tape keeps the name; FX/metals untouched) + the
+    `signaldesk universe` point-in-time audit (every run's
+    `report.json` universe classified against today's bars: active / dormant /
+    no-data; survivorship exposure of the ledger's signal symbols; caveat
+    attached to outcome statistics and the dashboard).
 30. Position sizing: inverse-volatility risk 0.5–1% per trade plus a
     per-asset-class cluster cap — crypto signals run 0.6–0.9 correlated, so ten
     simultaneous longs are ~1.4 independent bets, not ten.

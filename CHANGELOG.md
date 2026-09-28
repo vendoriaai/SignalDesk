@@ -5,6 +5,19 @@ All notable changes to SignalDesk are documented here.
 ## [Unreleased]
 
 ### Added
+- **Universe integrity (roadmap item 29) — keep the outcome sample honest:**
+  - Liquidity screen in WF Phase 2: movers picks below declared crypto floors
+    ($5M 24h volume / $50M market cap, cited in the report like the cost
+    model) never reach scoring and are disclosed; names without tape data are
+    kept (a missing tape is not evidence of illiquidity); FX/metals — no
+    centralized tape — are not screened. Demo scans skip the screen (synthetic
+    data).
+  - Point-in-time survivorship audit (`signaldesk universe`): classifies every
+    past run's universe (`runs/*/report.json`) against today's bars — active /
+    dormant (no fresh bar in N days) / no data — and reports the share of
+    ledger signal symbols that no longer trade. Saved to
+    `universe_audit.json`; `signaldesk outcomes` and the Outcomes dashboard
+    attach the caveat to the statistics once an audit exists.
 - **WF-5 remainder (roadmap item 28) — outcomes in the app, on a schedule:**
   - Scheduled daily resolution: a server background loop (`scheduler.py`)
     runs one resolution pass per local day — immediately on startup when

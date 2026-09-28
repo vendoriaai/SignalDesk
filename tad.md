@@ -96,7 +96,7 @@ Vite + React (or Vue): Chat view with streaming step cards (Search / Tool call /
 ### 3.7 `packaging/`
 GitHub Actions matrix (windows-latest, macos-14, ubuntu-latest): pip → PyInstaller spec → installer build → artifact publish to GitHub Releases. Auto-update via a tiny update-manifest check (TUF-style; v1 can ship manual download).
 
-### 3.8 Measurement layer — `costs.py` · `ledger.py` · `outcomes.py` · `metrics.py` · `resolver.py` · `scheduler.py` · `paper.py`
+### 3.8 Measurement layer — `costs.py` · `ledger.py` · `outcomes.py` · `metrics.py` · `resolver.py` · `scheduler.py` · `paper.py` · `universe.py`
 Deliberately framework-free (no backtesting engine): signals are discrete
 records with levels, so the honest evaluation is a resolver over OHLCV
 artifacts, not a position-accounting engine.
@@ -133,6 +133,15 @@ artifacts, not a position-accounting engine.
   funding drag over resolved holds. Additive to the R7 accounting — outcomes
   keep resolving the modelled plan; paper events measure the
   execution-vs-model gap without re-labelling anything.
+- `universe.py` — universe integrity (item 29): the liquidity screen applied
+  to WF Phase 2 movers picks (declared per-market floors, cited as
+  `source_tool="liquidity_screen"`; a missing tape keeps the name) and the
+  point-in-time survivorship audit (`signaldesk universe` →
+  `universe_audit.json`): every historical run's universe classified against
+  today's bars (active / dormant / no-data) plus the share of ledger signal
+  symbols no longer trading. The caveat attaches to outcome statistics (CLI +
+  dashboard). Read-only: never re-derives signals (same contract as the
+  resolver).
 
 API/UI surface: `GET /api/outcomes` (cached, never fetches bars),
 `POST /api/outcomes/resolve`, `POST /api/paper/{signal_id}/fill|miss`, and the
@@ -182,6 +191,7 @@ signaldesk/
   report/               # schema.py, render.py
   costs.py  ledger.py  outcomes.py  metrics.py   # measurement layer (TAD 3.8)
   resolver.py scheduler.py paper.py              # WF-5: pipeline, daily loop, paper log
+  universe.py                                    # liquidity screen + survivorship audit (item 29)
   markets.py  watchlists.py  store.py  userconfig.py  sync.py
   ui/                   # React app (dist/ served by api.py)
   evals/                # planner/workflow corpus runner

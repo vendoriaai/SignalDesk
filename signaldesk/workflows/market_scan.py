@@ -19,6 +19,7 @@ from pydantic import BaseModel
 
 from signaldesk import costs as cost_model
 from signaldesk import ledger as ledger_mod
+from signaldesk import universe as universe_mod
 from signaldesk.agent.events import EventBus, EventKind
 from signaldesk.citations.registry import CitationRegistry
 from signaldesk.markets import DEFAULT_ENTRY_TIMEFRAMES, DEFAULT_TIMEFRAMES, PROFILES, MarketProfile, pip_size
@@ -117,6 +118,7 @@ def run_market_scan(req: MarketScanRequest, tools: ToolSet, bus: EventBus, run_d
     disclosures: list[str] = []
     today = datetime.now(UTC).date().isoformat()
     market = req.market.lower()
+    demo_mode = tools.ohlcv.__class__.__name__.startswith("Demo")
 
     # ---- Phase 0: plan ------------------------------------------------------
     profile: MarketProfile | None = PROFILES.get(market)
@@ -159,7 +161,34 @@ def run_market_scan(req: MarketScanRequest, tools: ToolSet, bus: EventBus, run_d
                 disclosures.append("Movers list unavailable; scanning majors only.")
             else:
                 movers_df = pd.read_csv(movers.csv_files[0])
-                picks = movers_df[movers_df["side"].isin(("gainer", "universe"))]["symbol"].tolist()
+                # Liquidity screen (item 29): floors apply only where a real
+                # tape exists; demo data is synthetic, so demo scans skip it.
+                if demo_mode:
+                    kept_df, dropped = movers_df, []
+                else:
+                    kept_df, dropped = universe_mod.liquidity_screen(movers_df, market)
+                if dropped:
+                    vol_floor = universe_mod.FLOORS[market]["min_24h_volume_usd"]
+                    cap_floor = universe_mod.FLOORS[market]["min_market_cap_usd"]
+                    vol_cite = registry.register_direct(
+                        vol_floor, "liquidity screen floor: minimum 24h volume (USD)",
+                        source_tool="liquidity_screen", file="signaldesk/universe.py",
+                        row_key=market, column="min_24h_volume_usd",
+                    )
+                    cap_cite = registry.register_direct(
+                        cap_floor, "liquidity screen floor: minimum market cap (USD)",
+                        source_tool="liquidity_screen", file="signaldesk/universe.py",
+                        row_key=market, column="min_market_cap_usd",
+                    )
+                    reasons = "; ".join(f"{d['symbol']} ({d['reason']})" for d in dropped)
+                    disclosures.append(
+                        f"Liquidity screen dropped {len(dropped)} mover(s): {reasons} "
+                        f"[{vol_cite.id}, {cap_cite.id}]"
+                    )
+                    bus.emit("P2", EventKind.WARN,
+                             f"liquidity screen: {len(dropped)} dropped, "
+                             f"{len(kept_df)} kept")
+                picks = kept_df[kept_df["side"].isin(("gainer", "universe"))]["symbol"].tolist()
                 for sym in picks:
                     if sym not in universe:
                         universe.append(sym)
@@ -479,7 +508,7 @@ def run_market_scan(req: MarketScanRequest, tools: ToolSet, bus: EventBus, run_d
         report, run_dir.name, market=market,
         data_hashes=data_hashes, bars_last_dates=bars_last,
         cost_pcts={s.symbol: s.cost_pct for s in signals},
-        demo=tools.ohlcv.__class__.__name__.startswith("Demo"),
+        demo=demo_mode,
     )
     ledger_file = ledger_mod.default_ledger_path(run_dir)
     written = ledger_mod.append_records(ledger_file, ledger_records)

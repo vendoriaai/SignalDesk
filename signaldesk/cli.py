@@ -437,6 +437,7 @@ def outcomes(
     from signaldesk import metrics as metrics_mod
     from signaldesk import outcomes as outcomes_mod
     from signaldesk import resolver as resolver_mod
+    from signaldesk import universe as universe_mod
 
     config = Config.from_env()
     records = resolver_mod.select_records(
@@ -455,6 +456,9 @@ def outcomes(
         horizon_bars=horizon, on_progress=progress)
 
     summary = metrics_mod.summarize(rows)
+    bias_note = universe_mod.bias_note(config.data_dir)
+    if bias_note:
+        summary.notes.append(bias_note)
     if json_out:
         import dataclasses
 
@@ -513,6 +517,32 @@ def ledger_cmd(
     typer.echo("by market: " + ", ".join(f"{k} {v}" for k, v in sorted(by_market.items())))
     typer.echo("by entry mode: " + ", ".join(f"{k} {v}" for k, v in sorted(by_mode.items())))
     typer.echo(f"rule fingerprints: {', '.join(payload['weights_hashes']) or '(none)'}")
+
+
+@app.command()
+def universe(
+    market: str = typer.Option("", "--market", "-m",
+                               help="Audit only this market (crypto|forex|metals|equities)."),
+    demo: bool = typer.Option(False, "--demo", help="Classify against the offline demo feed."),
+    stale_days: int = typer.Option(30, "--stale-days", min=1, max=365,
+                                   help="No fresh bar in N days -> dormant."),
+    json_out: bool = typer.Option(False, "--json"),
+) -> None:
+    """Size the survivorship bias in the ledger sample (point-in-time universe audit)."""
+    from signaldesk import universe as universe_mod
+
+    config = Config.from_env()
+    audit = universe_mod.run_audit(
+        config.data_dir, market=market or None, demo=demo, stale_days=stale_days,
+        on_progress=(lambda t: typer.secho(t, dim=True)) if trace_events() else None)
+    universe_mod.save_audit(config.data_dir, audit)
+    if json_out:
+        import dataclasses
+
+        typer.echo(json.dumps(dataclasses.asdict(audit), indent=2, default=str))
+    else:
+        typer.echo(universe_mod.render_audit_text(audit))
+        typer.secho(f"\naudit saved: {universe_mod.audit_path(config.data_dir)}", dim=True)
 
 
 # --------------------------------------------------------------------------

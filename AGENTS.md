@@ -80,14 +80,14 @@ When the user requests a durable behavior change, record it here or in the relev
 
 ## Child DOX Index
 
-Project tree after the WF-5 item-28 work (2026-09-28, v1.0.0 + unreleased).
+Project tree after the item-29 work (2026-09-28, v1.0.0 + unreleased).
 Git: origin https://github.com/vendoriaai/SignalDesk, default branch `main`.
 No child AGENTS.md files: the tree is a single small package and the existing docs
 already own each boundary. Split out a child AGENTS.md when a subtree gains its own
 durable rules beyond what the docs below state.
 
-- `README.md` — quickstart, current feature status, dev commands (incl. `signaldesk outcomes`/`ledger`/`paper`)
-- `CHANGELOG.md` — release notes (v1.0.0; Unreleased carries the measurement layer + WF-5 item 28)
+- `README.md` — quickstart, current feature status, dev commands (incl. `signaldesk outcomes`/`ledger`/`paper`/`universe`)
+- `CHANGELOG.md` — release notes (v1.0.0; Unreleased carries the measurement layer + WF-5 item 28 + item 29)
 - `prd.md` — product spec (assumptions, FR/NFR, milestones)
 - `tad.md` — architecture of record; module contracts (incl. §3.8 measurement layer)
 - `workflows.md` — agent workflow specs (WF-1..WF-5 shipped; WF-5 through roadmap item 28); global rules R1–R7
@@ -128,6 +128,10 @@ durable rules beyond what the docs below state.
   `paper.py` (append-only `paper.jsonl`: fill/miss decisions, first per
   signal wins; fill rate + entry-gap-in-R + crypto funding drag, additive
   to the R7 accounting),
+  `universe.py` (universe integrity, item 29: liquidity screen on movers
+  picks — declared floors, cited, missing tape kept; point-in-time
+  survivorship audit via `signaldesk universe`, cached in
+  `universe_audit.json` and attached as a caveat to outcome statistics),
   `watchlists.py` (local JSON store), `store.py` (SQLite/SQLModel cache),
   `userconfig.py` (keychain secrets: LLM incl. OpenRouter, search, data, Supabase tokens),
   `sync.py` (Supabase REST, consent-gated), `api.py` (FastAPI + WS + chart
@@ -140,8 +144,8 @@ durable rules beyond what the docs below state.
   same gallery via `/api/runs/{id}`; Outcomes stats dashboard reads cached
   resolutions and logs paper fill/miss from open signal rows; build output
   in `signaldesk/ui/dist`,
-  served by api.py). The outcome statistics are CLI-only for now (Phase 5 item 28).
-- `tests/` — pytest suite (160 tests); new modules must add coverage here
+  served by api.py). The universe audit is CLI-only for now (Phase 5 item 29).
+- `tests/` — pytest suite (170 tests); new modules must add coverage here
 
 Root-level rules: keep every report figure cited (R1), read-only tools only, degrade
 with disclosure instead of failing (R4), no "signals = prediction" wording anywhere,

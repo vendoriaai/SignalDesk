@@ -31,10 +31,12 @@ chat, intraday entry refinement (30m/15m/5m/1m, Phase 7.5), the P0
 measurement layer — a signal ledger, triple-barrier outcome resolver and
 `signaldesk outcomes` (expectancy in R net of cost, with confidence intervals),
 plus a cost-aware risk floor so stops cannot be tighter than trading costs
-allow — and the WF-5 remainder (roadmap item 28): a scheduled daily resolver,
+allow — the WF-5 remainder (roadmap item 28): a scheduled daily resolver,
 the Outcomes stats dashboard in the UI, and a paper execution log for the
-execution-vs-model gap. Post-1.0 quality work continues in
-[roadmap.md](roadmap.md) Phase 5.
+execution-vs-model gap — and universe integrity (item 29): a liquidity
+screen on movers picks plus `signaldesk universe`, a point-in-time audit
+that sizes the survivorship bias in the outcome sample. Post-1.0 quality
+work continues in [roadmap.md](roadmap.md) Phase 5.
 
 
 ## Run the app
@@ -100,6 +102,7 @@ signaldesk outcomes --horizon 7      # shorter time barrier (default 14 daily ba
 signaldesk paper fill <id> -p 101.2  # paper log: signal taken at 101.2 (entry-gap measurement)
 signaldesk paper miss <id>           # paper log: signal skipped / never filled
 signaldesk paper list                # fill rate, entry slippage in R
+signaldesk universe                  # survivorship audit of every past run's universe
 
 # inspect the agent's execution trace:
 signaldesk scan crypto --trace       # JSONL events
@@ -149,6 +152,12 @@ to `~/.signaldesk/signaldesk.db` (SQLite).
     dashboard shows expectancy/hit-rate/profit-factor with intervals, and each
     open signal can be paper-logged as filled (real price → entry-slippage
     measurement) or missed (fill-rate measurement).
+12. **Universe integrity** (item 29): movers picks pass a liquidity screen
+    (declared crypto floors — $5M 24h volume, $50M market cap — cited in the
+    report; a missing tape keeps the name, disclosed), and `signaldesk
+    universe` audits every past run's universe against today's bars to size
+    the survivorship bias in the outcome sample (that caveat attaches to the
+    statistics once an audit has been run).
 
 Every number in the report is a citation: direct (tool, file, row, column) or
 derived (formula + inputs). See [workflows.md](workflows.md) for the full spec.

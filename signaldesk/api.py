@@ -425,6 +425,7 @@ def create_app(config: Config | None = None) -> FastAPI:
         from . import paper as paper_mod
         from . import resolver as resolver_mod
         from . import scheduler as scheduler_mod
+        from . import universe as universe_mod
 
         records_by_id = {r.signal_id: r
                          for r in ledger_mod.read_records(ledger_mod.ledger_path(config.data_dir))}
@@ -434,8 +435,12 @@ def create_app(config: Config | None = None) -> FastAPI:
         for row in signals:
             ev = paper_by_id.get(row["signal_id"])
             row["paper"] = ev.model_dump() if ev else None
+        summary = metrics_mod.summarize(rows)
+        bias_note = universe_mod.bias_note(config.data_dir)
+        if bias_note:
+            summary.notes.append(bias_note)
         return {
-            "metrics": dataclasses.asdict(metrics_mod.summarize(rows)),
+            "metrics": dataclasses.asdict(summary),
             "resolutions": rows,
             "signals": signals,
             "paper": paper_mod.paper_stats(config.data_dir, records_by_id, latest),

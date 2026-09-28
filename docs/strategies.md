@@ -72,6 +72,16 @@ each open signal can be paper-logged as *filled* (with the real price, to
 measure entry slippage) or *missed* (to measure fill rate) — or logged from
 the CLI with `signaldesk paper fill|miss|list`.
 
+Two more guards keep that sample honest. The scan screens crypto movers picks
+through declared liquidity floors ($5M 24h volume, $50M market cap — cited in
+the report like the cost model), so untradeable names never emit signals; a
+missing tape keeps the name, disclosed. And because today's top-volume names
+are yesterday's survivors, run `signaldesk universe` occasionally: it
+classifies every past run's universe against today's bars and reports how
+much of your signal sample sits on no-longer-active names — `signaldesk
+outcomes` attaches that caveat to the statistics until enough post-screen
+signals accumulate.
+
 Judge a preset change on that output, on the *same* signal set, with the sample
 size caveats it prints (fewer than ~4 independent weeks or n < 100 cannot
 distinguish a real improvement from noise) — not on the in-sample score.
