@@ -31,6 +31,7 @@ export const getUpdateCheck = () => api("/api/update-check");
 export const getVersion = () => api("/api/version");
 export const getOutcomes = () => api("/api/outcomes");
 export const resolveOutcomes = (body = {}) => api("/api/outcomes/resolve", { method: "POST", body });
+export const refreshMtm = () => api("/api/mtm/refresh", { method: "POST" });
 export const paperFill = (signalId, price, note = "") =>
   api(`/api/paper/${encodeURIComponent(signalId)}/fill`, { method: "POST", body: { price, note } });
 export const paperMiss = (signalId, note = "") =>

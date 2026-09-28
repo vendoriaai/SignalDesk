@@ -129,8 +129,8 @@ durable rules beyond what the docs below state.
   signal wins; fill rate + entry-gap-in-R + crypto funding drag, additive
   to the R7 accounting),
   `mtm.py` (live mark-to-market for open signals: hourly quote snapshot in
-  `mtm.json`, direction-aware unrealized R, served cached with /api/outcomes;
-  barriers still confirm only on closed daily bars),
+  `mtm.json`, direction-aware unrealized R + P&L %, throttled
+  POST /api/mtm/refresh; barriers still confirm only on closed daily bars),
   `universe.py` (universe integrity, item 29: liquidity screen on movers
   picks — declared floors, cited, missing tape kept; point-in-time
   survivorship audit via `signaldesk universe`, cached in

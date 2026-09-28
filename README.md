@@ -152,8 +152,9 @@ to `~/.signaldesk/signaldesk.db` (SQLite).
     dashboard shows expectancy/hit-rate/profit-factor with intervals, and each
     open signal can be paper-logged as filled (real price → entry-slippage
     measurement) or missed (fill-rate measurement). Open signals also carry a
-    live mark-to-market — unrealized R from the latest quote, refreshed hourly
-    by the server loop — so "is this in profit yet?" is answered automatically
+    live mark-to-market — current price with P&L % and unrealized R from the
+    latest quote, refreshed hourly by the server loop and every 5 minutes by
+    the dashboard — so "is this in profit yet?" is answered automatically
     between resolution passes.
 12. **Universe integrity** (item 29): movers picks pass a liquidity screen
     (declared crypto floors — $5M 24h volume, $50M market cap — cited in the

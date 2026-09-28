@@ -43,20 +43,25 @@ def _quotes_builder(prices: dict, fail: bool = False):
     return lambda market: _Stub()
 
 
-# unrealized R ----------------------------------------------------------------
+# unrealized R / % P&L ----------------------------------------------------------
 
-def test_unrealized_r_is_direction_aware():
+def test_unrealized_is_direction_aware():
     rec = {"entry": 100.0, "stop": 95.0, "risk": 5.0, "direction": "LONG"}
-    assert mtm.unrealized_r(rec, 102.0) == 0.4      # +2 points = +0.4R
-    assert mtm.unrealized_r(rec, 90.0) == -2.0
-    short = {"entry": 100.0, "stop": 105.0, "risk": 5.0, "direction": "SHORT"}
-    assert mtm.unrealized_r(short, 98.0) == 0.4     # below entry is good for a short
-    assert mtm.unrealized_r(short, 103.0) == -0.6
+    r, pct = mtm.unrealized(rec, 102.0)
+    assert r == 0.4                                   # +2 points = +0.4R
+    assert pct == 2.0                                 # +2% over entry
+    r, pct = mtm.unrealized(rec, 90.0)
+    assert r == -2.0 and pct == -10.0
+    short = {"entry": 100.0, "stop": 105.0, "risk": -5.0, "direction": "SHORT"}
+    r, pct = mtm.unrealized(short, 98.0)              # below entry is good for a short
+    assert r == 0.4 and pct == 2.0
+    r, pct = mtm.unrealized(short, 103.0)
+    assert r == -0.6 and pct == -3.0
 
 
-def test_unrealized_r_needs_a_risk_unit():
-    assert mtm.unrealized_r({"entry": 100.0, "stop": 100.0, "risk": 0.0,
-                             "direction": "LONG"}, 102.0) is None
+def test_unrealized_needs_a_risk_unit():
+    assert mtm.unrealized({"entry": 100.0, "stop": 100.0, "risk": 0.0,
+                           "direction": "LONG"}, 102.0) == (None, None)
 
 
 # refresh ---------------------------------------------------------------------
@@ -72,6 +77,7 @@ def test_refresh_quotes_open_signals_and_persists(tmp_path):
 
     assert payload is not None and set(payload["rows"]) == {"r1:BTCUSD", "r2:ETHUSD"}
     assert payload["rows"]["r1:BTCUSD"]["r_unrealized"] == 0.4
+    assert payload["rows"]["r1:BTCUSD"]["pnl_pct"] == 2.0
     assert payload["rows"]["r1:BTCUSD"]["price"] == 102.0
     assert payload["fetched_at"]
     saved = mtm.load_mtm(tmp_path)
@@ -143,3 +149,38 @@ def test_mtm_file_is_separate_from_resolution_state(tmp_path):
     mtm.refresh(tmp_path, tool_builder=_quotes_builder({}))
     state = json.loads((tmp_path / "outcomes_state.json").read_text(encoding="utf-8"))
     assert state == {"last_status": "ok"}
+
+
+# throttled refresh (request-handler path) -------------------------------------
+
+def test_refresh_if_stale_counts_builder_calls(tmp_path):
+    calls = []
+
+    def builder(market):
+        calls.append(market)
+        return _quotes_builder({"BTCUSD": 102.0})(market)
+
+    ledger.append_records(ledger.ledger_path(tmp_path), [_rec("r1:BTCUSD", "BTCUSD")])
+
+    first = mtm.refresh_if_stale(tmp_path, tool_builder=builder, min_interval_s=0)
+    assert first["rows"]["r1:BTCUSD"]["pnl_pct"] == 2.0
+    assert len(calls) == 1
+
+    second = mtm.refresh_if_stale(tmp_path, tool_builder=builder, min_interval_s=0)
+    assert second["rows"]["r1:BTCUSD"]["price"] == 102.0
+    assert len(calls) == 2                          # min_interval_s=0 -> always fetch
+
+
+def test_refresh_if_stale_serves_cache_inside_interval(tmp_path):
+    calls = []
+
+    def builder(market):
+        calls.append(market)
+        return _quotes_builder({"BTCUSD": 102.0})(market)
+
+    ledger.append_records(ledger.ledger_path(tmp_path), [_rec("r1:BTCUSD", "BTCUSD")])
+    mtm.refresh(tmp_path, tool_builder=builder)     # sets the last-fetch stamp
+
+    served = mtm.refresh_if_stale(tmp_path, tool_builder=builder, min_interval_s=10**9)
+    assert len(calls) == 1                          # builder not called again
+    assert served["rows"]["r1:BTCUSD"]["r_unrealized"] == 0.4

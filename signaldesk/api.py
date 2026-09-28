@@ -480,6 +480,14 @@ def create_app(config: Config | None = None) -> FastAPI:
             include_demo=body.include_demo, horizon_bars=max(1, min(body.horizon, 250)))
         return _outcomes_payload(rows, stale=False)
 
+    @app.post("/api/mtm/refresh")
+    def mtm_refresh() -> dict:
+        """Refresh the live mark-to-market snapshot (throttled to avoid
+        hammering the quote source; serves the cache when called too soon)."""
+        from . import mtm as mtm_mod
+
+        return mtm_mod.refresh_if_stale(config.data_dir)
+
     @app.post("/api/paper/{signal_id}/fill")
     def paper_fill(signal_id: str, body: PaperIn | None = None) -> dict:
         from . import paper as paper_mod

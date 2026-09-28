@@ -16,6 +16,8 @@ fetch degrades, the previous snapshot is kept (rule R4).
 from __future__ import annotations
 
 import json
+import threading
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -23,6 +25,10 @@ import pandas as pd
 
 MTM_FILENAME = "mtm.json"
 OPEN_STATUSES = ("open", "no_data")
+MIN_REFRESH_INTERVAL_S = 120   # request handlers may not hammer the data source
+
+_last_refresh = 0.0            # time.monotonic of the last actual fetch attempt
+_refresh_lock = threading.Lock()
 
 
 def mtm_path(data_dir: Path) -> Path:
@@ -60,15 +66,20 @@ def _quotes_tool(data_dir: Path, market: str):
     return YFinanceQuotesTool(Path(data_dir) / "mtm_quotes", market=market)
 
 
-def unrealized_r(record: dict, price: float) -> float | None:
-    """Direction-aware unrealized R for one ledger row at `price`."""
+def unrealized(record: dict, price: float) -> tuple[float | None, float | None]:
+    """Direction-aware (unrealized R, P&L %) for one ledger row at `price`.
+
+    % P&L answers "how much am I up/down on this entry"; R keeps the number
+    comparable to the outcome statistics (both flip sign for SHORTs).
+    """
     entry = float(record.get("entry") or 0.0)
     # the ledger stores risk as entry - stop, which is negative for SHORTs
     risk = abs(float(record.get("risk") or 0.0) or (entry - float(record.get("stop") or 0.0)))
     if entry <= 0 or risk <= 0:
-        return None
+        return None, None
     sign = 1.0 if str(record.get("direction") or "LONG").upper() == "LONG" else -1.0
-    return round(sign * (price - entry) / risk, 4)
+    move = sign * (price - entry)
+    return round(move / risk, 4), round(move / entry * 100.0, 3)
 
 
 def refresh(data_dir: Path, *, include_demo: bool = False,
@@ -78,13 +89,15 @@ def refresh(data_dir: Path, *, include_demo: bool = False,
     Returns the new payload, or None when nothing changed (no open signals
     would clear the file; a fully degraded fetch keeps the old one).
     """
+    global _last_refresh
+    with _refresh_lock:
+        _last_refresh = time.monotonic()
     rows = open_signals(data_dir, include_demo=include_demo)
     if not rows:
         payload = {"fetched_at": (now or datetime.now(UTC)).isoformat(timespec="seconds"),
                    "rows": {}}
         save_mtm(data_dir, payload)
         return payload
-
     out: dict[str, dict] = {}
     errors: list[str] = []
     for market in sorted({r["market"] for r in rows}):
@@ -114,11 +127,12 @@ def refresh(data_dir: Path, *, include_demo: bool = False,
             price = prices.get(r["symbol"])
             if price is None:
                 continue
-            r_unreal = unrealized_r(r, price)
+            r_unreal, pnl_pct = unrealized(r, price)
             if r_unreal is None:
                 continue
             out[r["signal_id"]] = {"symbol": r["symbol"], "market": market,
-                                   "price": price, "r_unrealized": r_unreal}
+                                   "price": price, "r_unrealized": r_unreal,
+                                   "pnl_pct": pnl_pct}
 
     if not out:
         # nothing quotable this pass: keep the previous snapshot (R4: degrade,
@@ -128,3 +142,20 @@ def refresh(data_dir: Path, *, include_demo: bool = False,
                "rows": out}
     save_mtm(data_dir, payload)
     return payload
+
+
+def refresh_if_stale(data_dir: Path, *, include_demo: bool = False,
+                     tool_builder=None,
+                     min_interval_s: int = MIN_REFRESH_INTERVAL_S) -> dict:
+    """Throttled refresh for request handlers.
+
+    Runs a full refresh only when the last fetch attempt is older than
+    `min_interval_s`; otherwise serves the cached snapshot. Either way the
+    current `mtm.json` content is returned, so callers can just send it.
+    """
+    global _last_refresh
+    with _refresh_lock:
+        due = time.monotonic() - _last_refresh >= min_interval_s
+    if due:
+        refresh(data_dir, include_demo=include_demo, tool_builder=tool_builder)
+    return load_mtm(data_dir)

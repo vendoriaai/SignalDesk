@@ -135,9 +135,11 @@ artifacts, not a position-accounting engine.
   execution-vs-model gap without re-labelling anything.
 - `mtm.py` — live mark-to-market for open signals: the scheduler's hourly
   check also refreshes a quote snapshot (`mtm.json`) and computes
-  direction-aware unrealized R per open signal (its own risk unit). Served
-  with `/api/outcomes` as a cached read — request handlers never fetch
-  quotes. A snapshot, not a resolution: barriers still confirm only on
+  direction-aware unrealized R and P&L % per open signal (its own risk
+  unit). Served with `/api/outcomes` as a cached read; the dashboard (and
+  anyone else) can trigger `POST /api/mtm/refresh`, throttled to one fetch
+  per `MIN_REFRESH_INTERVAL_S` so request handlers never hammer the quote
+  source. A snapshot, not a resolution: barriers still confirm only on
   closed daily bars; a fully degraded fetch keeps the previous snapshot (R4).
 - `universe.py` — universe integrity (item 29): the liquidity screen applied
   to WF Phase 2 movers picks (declared per-market floors, cited as

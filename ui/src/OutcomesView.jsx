@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from "react";
-import { getOutcomes, paperFill, paperMiss, resolveOutcomes } from "./api.js";
+import { getOutcomes, paperFill, paperMiss, refreshMtm, resolveOutcomes } from "./api.js";
 
 const fmtR = (x) => (x == null || x === undefined ? "—" : `${x >= 0 ? "+" : ""}${Number(x).toFixed(2)}R`);
 const fmtPct = (x) => (x == null || x === undefined ? "—" : `${(x * 100).toFixed(1)}%`);
+const fmtPnl = (x) => (x == null || x === undefined ? "—" : `${x >= 0 ? "+" : ""}${Number(x).toFixed(2)}%`);
 const fmtPx = (x) => (x == null || x === undefined ? "—" : Number(x).toPrecision(6).replace(/\.?0+$/, ""));
 // profit factor is +inf with no losing trades; JSON has no Infinity (arrives as null)
 const fmtPf = (x) => (x == null || x === undefined || !Number.isFinite(Number(x)) ? "∞" : Number(x).toFixed(2));
@@ -41,10 +42,27 @@ function Breakdown({ title, groups }) {
 export default function OutcomesView() {
   const [data, setData] = useState(null);
   const [resolving, setResolving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [prices, setPrices] = useState({});      // signal_id -> inline fill price input
   const [busyId, setBusyId] = useState(null);
 
   useEffect(() => { getOutcomes().then(setData).catch(() => {}); }, []);
+
+  async function refreshPrices() {
+    setRefreshing(true);
+    try {
+      const mtm = await refreshMtm();          // throttled server-side
+      setData((prev) => ({ ...(prev || {}), mtm }));
+    } catch { /* keep old data */ }
+    setRefreshing(false);
+  }
+
+  // fresh prices when the dashboard opens, then every 5 minutes while it is open
+  useEffect(() => {
+    refreshPrices();
+    const id = setInterval(refreshPrices, 5 * 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
 
   async function resolveNow() {
     setResolving(true);
@@ -91,6 +109,9 @@ export default function OutcomesView() {
         </div>
         <div className="oc-actions">
           <span className="muted oc-sched">{schedText}</span>
+          <button onClick={refreshPrices} disabled={refreshing} title="Fetch current prices for open signals (auto-refreshes every 5 min)">
+            {refreshing ? "Refreshing…" : "Refresh prices"}
+          </button>
           <button onClick={resolveNow} disabled={resolving}>{resolving ? "Resolving…" : "Resolve now"}</button>
         </div>
       </div>
@@ -150,7 +171,7 @@ export default function OutcomesView() {
             <thead>
               <tr>
                 <th>symbol</th><th>market</th><th>mode</th><th>entry</th><th>stop</th>
-                <th>tp1</th><th>tp2</th><th>status</th><th>r_net</th><th>paper</th>
+                <th>tp1</th><th>tp2</th><th>status</th><th>live</th><th>r_net</th><th>paper</th>
               </tr>
             </thead>
             <tbody>
@@ -162,6 +183,21 @@ export default function OutcomesView() {
                   <td>{fmtPx(s.entry)}</td><td>{fmtPx(s.stop)}</td>
                   <td>{fmtPx(s.tp1)}</td><td>{fmtPx(s.tp2)}</td>
                   <td><span className={`status status-${s.status}`}>{s.status}</span></td>
+                  <td>
+                    {(() => {
+                      const isOpen = !s.status || s.status === "open" || s.status === "no_data";
+                      const live = isOpen ? mtmRows[s.signal_id] : null;
+                      if (!live || live.pnl_pct == null) return <span className="muted">—</span>;
+                      return (
+                        <span
+                          className={`mtm-live ${live.pnl_pct >= 0 ? "mtm-pos" : "mtm-neg"}`}
+                          title={`mark-to-market @ ${fmtPx(live.price)} · ${fmtR(live.r_unrealized)}`}
+                        >
+                          {fmtPx(live.price)} ({fmtPnl(live.pnl_pct)})
+                        </span>
+                      );
+                    })()}
+                  </td>
                   <td>
                     {(() => {
                       const isOpen = !s.status || s.status === "open" || s.status === "no_data";
