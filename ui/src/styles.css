@@ -20,7 +20,7 @@ body { margin: 0; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; ba
 .error { color: #f85149; margin-bottom: 10px; }
 .notice { background: #1c2128; border: 1px solid #444c56; border-radius: 6px; padding: 8px 12px; margin: 10px 0; font-size: 13px; }
 
-.trace h3, .history h3, .watchlists h3, .settings h3 { color: #8b949e; font-weight: 500; }
+.trace h3, .history h3, .watchlists h3, .settings h3, .outcomes h3 { color: #8b949e; font-weight: 500; }
 .step { display: flex; align-items: baseline; gap: 8px; padding: 6px 10px; border-left: 2px solid #30363d; margin: 2px 0; cursor: pointer; font-size: 13px; }
 .step:hover { background: #161b22; }
 .step-phase { color: #8b949e; font-family: ui-monospace, monospace; min-width: 28px; }
@@ -52,6 +52,33 @@ body { margin: 0; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; ba
 .hi-title { font-size: 14px; } .hi-sub { font-size: 12px; color: #8b949e; margin-top: 3px; }
 .status-done { color: #3fb950; } .status-failed { color: #f85149; } .status-running { color: #d29922; }
 .muted { color: #8b949e; }
+
+/* outcomes dashboard (WF-5) */
+.oc-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.oc-tagline { margin: 2px 0 0; font-size: 13px; }
+.oc-actions { display: flex; gap: 10px; align-items: center; white-space: nowrap; }
+.oc-actions button { background: #1f6feb; border: none; color: #fff; border-radius: 6px; padding: 8px 14px; cursor: pointer; }
+.oc-actions button:disabled { opacity: 0.6; cursor: default; }
+.oc-sched { font-size: 12px; }
+.oc-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; margin: 12px 0; }
+.stat-card { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 12px 14px; }
+.stat-value { font-size: 20px; font-weight: 600; }
+.stat-label { font-size: 12px; color: #8b949e; margin-top: 4px; }
+.stat-sub { font-size: 11px; color: #8b949e; margin-top: 2px; }
+.oc-variants { font-size: 12px; margin: 4px 0 8px; }
+.oc-notes { color: #d29922; font-size: 12.5px; margin: 8px 0; padding-left: 20px; }
+.oc-breakdowns { display: flex; gap: 26px; flex-wrap: wrap; margin: 10px 0 16px; }
+.oc-breakdown { min-width: 260px; }
+.oc-table { border-collapse: collapse; width: 100%; font-size: 13px; background: #161b22; border: 1px solid #30363d; border-radius: 8px; }
+.oc-table th, .oc-table td { border: 1px solid #30363d; padding: 5px 8px; text-align: left; white-space: nowrap; }
+.oc-table th { background: #0d1117; color: #8b949e; font-weight: 500; }
+.oc-signals { margin-top: 6px; }
+.oc-signals .oc-table { display: block; overflow-x: auto; }
+.status-open { color: #d29922; } .status-time { color: #8b949e; }
+.status-tp1, .status-tp2 { color: #3fb950; } .status-sl { color: #f85149; } .status-no_data { color: #6e7681; }
+.paper-actions { display: inline-flex; gap: 4px; align-items: center; }
+.paper-price { width: 90px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #e6edf3; padding: 4px 6px; font-size: 12px; }
+.paper-actions button { background: #1f6feb; border: none; color: #fff; border-radius: 5px; padding: 4px 8px; font-size: 12px; cursor: pointer; }
 
 .wl-form { display: flex; gap: 8px; margin-bottom: 14px; }
 .wl-form input, .settings input { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #e6edf3; padding: 8px 10px; }
@@ -103,6 +130,9 @@ body { margin: 0; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; ba
   .prompt-bar { flex-wrap: wrap; }
   .prompt-bar input { flex: 1 1 200px; min-width: 0; }
   .secret-row { grid-template-columns: 120px 70px 1fr; }
+  .oc-cards { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+  .oc-head { flex-direction: column; }
+  .oc-breakdowns { flex-direction: column; gap: 10px; }
 }
 
 /* small width/height: sidebar becomes a top bar, everything stacks */

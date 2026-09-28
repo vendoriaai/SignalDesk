@@ -17,7 +17,7 @@ trades.
 ![Version](https://img.shields.io/badge/version-v1.0.0-blue?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
 ![Python](https://img.shields.io/badge/python-3.12%2B-blue?style=flat-square)
-![Status](https://img.shields.io/badge/status-Phase%204%20complete-brightgreen?style=flat-square)
+![Status](https://img.shields.io/badge/status-Phase%205%20in%20progress-brightgreen?style=flat-square)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=flat-square)
 
 </div>
@@ -27,11 +27,14 @@ WF-3, deep dives WF-2, watchlists WF-4), planner + eval harness, desktop app
 stack (FastAPI + React UI, SQLite, Supabase auth/sync, pywebview), PyInstaller
 installers for Windows/macOS/Linux, onboarding wizard, update checks, and a
 docs site. Since v1.0.0: OpenRouter BYOK + model override, chart analysis in
-chat, intraday entry refinement (30m/15m/5m/1m, Phase 7.5), and the P0
+chat, intraday entry refinement (30m/15m/5m/1m, Phase 7.5), the P0
 measurement layer — a signal ledger, triple-barrier outcome resolver and
 `signaldesk outcomes` (expectancy in R net of cost, with confidence intervals),
 plus a cost-aware risk floor so stops cannot be tighter than trading costs
-allow. Post-1.0 quality work is in [roadmap.md](roadmap.md) Phase 5.
+allow — and the WF-5 remainder (roadmap item 28): a scheduled daily resolver,
+the Outcomes stats dashboard in the UI, and a paper execution log for the
+execution-vs-model gap. Post-1.0 quality work continues in
+[roadmap.md](roadmap.md) Phase 5.
 
 
 ## Run the app
@@ -58,8 +61,11 @@ or use the full launcher path:
 ```
 
 The UI gives you the chat agent (live execution trace + rendered cited report),
-history sidebar (offline), watchlist manager with one-click rescans, and
-settings for LLM/search keys (OS keychain only), the cloud-consent toggle, and
+history sidebar (offline), watchlist manager with one-click rescans, the
+Outcomes dashboard (expectancy in R with confidence intervals, hit rate,
+profit factor, per-signal status, paper fill/miss logging — while the server
+runs, open signals resolve automatically once per local day), and settings
+for LLM/search keys (OS keychain only), the cloud-consent toggle, and
 "delete my cloud data". A fresh install works fully without any cloud account.
 
 Spec docs: [prd.md](prd.md) · [tad.md](tad.md) · [workflows.md](workflows.md) ·
@@ -91,6 +97,9 @@ signaldesk ask "scan forex"
 signaldesk ledger                    # what the ledger holds (runs, modes, rule fingerprints)
 signaldesk outcomes --backfill       # import past runs, resolve them, print R statistics
 signaldesk outcomes --horizon 7      # shorter time barrier (default 14 daily bars)
+signaldesk paper fill <id> -p 101.2  # paper log: signal taken at 101.2 (entry-gap measurement)
+signaldesk paper miss <id>           # paper log: signal skipped / never filled
+signaldesk paper list                # fill rate, entry slippage in R
 
 # inspect the agent's execution trace:
 signaldesk scan crypto --trace       # JSONL events
@@ -135,6 +144,11 @@ to `~/.signaldesk/signaldesk.db` (SQLite).
     with its snapshot hash and rule fingerprint, so `signaldesk outcomes` can
     score it later (expectancy in R net of cost, with confidence intervals and
     explicit sample-size caveats).
+11. **Outcome tracking** (WF-5): while the app runs, a background loop resolves
+    open signals once per local day against fresh daily bars; the Outcomes
+    dashboard shows expectancy/hit-rate/profit-factor with intervals, and each
+    open signal can be paper-logged as filled (real price → entry-slippage
+    measurement) or missed (fill-rate measurement).
 
 Every number in the report is a citation: direct (tool, file, row, column) or
 derived (formula + inputs). See [workflows.md](workflows.md) for the full spec.

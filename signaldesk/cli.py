@@ -26,6 +26,9 @@ app = typer.Typer(add_completion=False, help="SignalDesk — AI market research 
 wl_app = typer.Typer(help="Manage local watchlists (WF-4).")
 app.add_typer(wl_app, name="watchlist")
 
+paper_app = typer.Typer(help="Log paper-trade executions against ledger signals (WF-5).")
+app.add_typer(paper_app, name="paper")
+
 
 # --------------------------------------------------------------------------
 # tool factories
@@ -431,57 +434,25 @@ def outcomes(
     json_out: bool = typer.Option(False, "--json"),
 ) -> None:
     """Score recorded signals against subsequent bars (expectancy in R, net of cost)."""
-    from signaldesk import ledger as ledger_mod
     from signaldesk import metrics as metrics_mod
     from signaldesk import outcomes as outcomes_mod
+    from signaldesk import resolver as resolver_mod
 
     config = Config.from_env()
-    ledger_file = ledger_mod.ledger_path(config.data_dir)
-    if backfill or not ledger_file.is_file():
-        imported = ledger_mod.backfill(config.data_dir, market=market or None)
-        if imported:
-            typer.secho(f"backfilled {imported} signal(s) from previous runs", dim=True)
-    records = ledger_mod.read_records(ledger_file)
-    if market:
-        records = [r for r in records if r.market == market]
-    if not include_demo and not demo:
-        records = [r for r in records if not r.demo]
-    records = [r for r in records if r.bars_last_date]
+    records = resolver_mod.select_records(
+        config.data_dir, market=market or None, demo=demo, include_demo=include_demo,
+        backfill=backfill,
+        on_backfill=lambda n: typer.secho(f"backfilled {n} signal(s) from previous runs",
+                                          dim=True))
     if not records:
         typer.secho("no scored signals yet — run a scan first (signaldesk scan crypto)",
                     err=True, fg=typer.colors.RED)
         raise typer.Exit(code=1)
 
-    bar_dir = config.data_dir / "outcome_bars"
-
-    def _tool_for(mkt: str):
-        if demo:
-            from signaldesk.tools import demo as demo_tools
-
-            return demo_tools.DemoOHLCVTool(bar_dir, mkt or "crypto")
-        from signaldesk.tools.yfinance_tools import YFinanceOHLCVTool
-
-        return YFinanceOHLCVTool(bar_dir, market=mkt or "crypto")
-
-    resolutions = []
     progress = (lambda text: typer.secho(text, dim=True)) if trace_events() else None
-    for mkt in sorted({r.market for r in records}):
-        group = [r for r in records if r.market == mkt]
-        provider = outcomes_mod.bars_provider_from_tool(_tool_for(mkt), period="2y")
-        resolutions += outcomes_mod.resolve_records(group, provider,
-                                                   horizon_bars=horizon, on_progress=progress)
-
-    outcomes_mod.write_resolutions(outcomes_mod.outcomes_path(config.data_dir), resolutions)
-    latest = outcomes_mod.load_latest(outcomes_mod.outcomes_path(config.data_dir))
-    rows: list[dict] = []
-    for rec in records:
-        res = latest.get(rec.signal_id)
-        if not res:
-            continue
-        row = dict(res)
-        row["mode"] = rec.entry_mode
-        row["market"] = rec.market
-        rows.append(row)
+    rows = resolver_mod.run_resolution(
+        config.data_dir, records=records, demo=demo,
+        horizon_bars=horizon, on_progress=progress)
 
     summary = metrics_mod.summarize(rows)
     if json_out:
@@ -542,6 +513,77 @@ def ledger_cmd(
     typer.echo("by market: " + ", ".join(f"{k} {v}" for k, v in sorted(by_market.items())))
     typer.echo("by entry mode: " + ", ".join(f"{k} {v}" for k, v in sorted(by_mode.items())))
     typer.echo(f"rule fingerprints: {', '.join(payload['weights_hashes']) or '(none)'}")
+
+
+# --------------------------------------------------------------------------
+# paper-trading commands (WF-5: execution-vs-model gap)
+# --------------------------------------------------------------------------
+
+@paper_app.command("fill")
+def paper_fill(
+    signal_id: str,
+    price: float = typer.Option(..., "--price", "-p", help="Actual (paper) fill price."),
+    note: str = typer.Option("", "--note", "-n"),
+) -> None:
+    """Record that a ledger signal was taken, at the price actually filled."""
+    from signaldesk import paper as paper_mod
+
+    try:
+        ev = paper_mod.log_event(Config.from_env().data_dir, signal_id, "fill",
+                                 price=price, note=note)
+    except KeyError as exc:
+        typer.secho(str(exc), err=True, fg=typer.colors.RED)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"fill recorded: {ev.signal_id} @ {ev.price}")
+
+
+@paper_app.command("miss")
+def paper_miss(
+    signal_id: str,
+    note: str = typer.Option("", "--note", "-n"),
+) -> None:
+    """Record that a ledger signal was NOT taken (skipped or never filled)."""
+    from signaldesk import paper as paper_mod
+
+    try:
+        ev = paper_mod.log_event(Config.from_env().data_dir, signal_id, "miss", note=note)
+    except KeyError as exc:
+        typer.secho(str(exc), err=True, fg=typer.colors.RED)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"miss recorded: {ev.signal_id}")
+
+
+@paper_app.command("list")
+def paper_list() -> None:
+    """Show paper decisions and the execution-vs-model gap so far."""
+    from signaldesk import outcomes as outcomes_mod
+    from signaldesk import paper as paper_mod
+
+    config = Config.from_env()
+    records = {r.signal_id: r for r in ledger_read(config)}
+    first = paper_mod.first_events(config.data_dir)
+    if not first:
+        typer.echo("no paper events — log one with `signaldesk paper fill <signal_id> --price P`")
+        return
+    latest = outcomes_mod.load_latest(outcomes_mod.outcomes_path(config.data_dir))
+    for ev in first.values():
+        rec = records.get(ev.signal_id)
+        sym = rec.symbol if rec else "?"
+        gap = ""
+        if ev.event == "fill" and ev.price is not None and rec:
+            gap = f" gap {paper_mod.entry_gap_r(rec, ev.price):+.2f}R"
+        status = latest.get(ev.signal_id, {}).get("status", "open")
+        typer.echo(f"{ev.event:4} {sym:12} {status:4} {ev.signal_id}{gap}")
+    stats = paper_mod.paper_stats(config.data_dir, records, latest)
+    typer.echo(f"\nfills {stats['fills']} · misses {stats['misses']} · "
+               f"fill rate {stats['fill_rate']:.0%} · "
+               f"mean entry gap {stats['mean_entry_gap_r']:+.2f}R (n={stats['n_entry_gap']})")
+
+
+def ledger_read(config: Config) -> list:
+    from signaldesk import ledger as ledger_mod
+
+    return ledger_mod.read_records(ledger_mod.ledger_path(config.data_dir))
 
 
 @app.command()

@@ -66,6 +66,12 @@ cost with a week-block bootstrap confidence interval, hit rate with a Wilson
 interval, profit factor, median bars-to-TP1 and MFE/MAE. `--backfill` imports
 signals from past `runs/*/report.json` so you get a sample immediately.
 
+The same statistics live in the desktop app's **Outcomes** view — while the
+server runs, a background loop resolves open signals once per local day, and
+each open signal can be paper-logged as *filled* (with the real price, to
+measure entry slippage) or *missed* (to measure fill rate) — or logged from
+the CLI with `signaldesk paper fill|miss|list`.
+
 Judge a preset change on that output, on the *same* signal set, with the sample
 size caveats it prints (fewer than ~4 independent weeks or n < 100 cannot
 distinguish a real improvement from noise) — not on the in-sample score.

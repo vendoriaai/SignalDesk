@@ -1,5 +1,4 @@
 """Phase 4: update-check logic + onboarding endpoints."""
-import json
 
 import pytest
 

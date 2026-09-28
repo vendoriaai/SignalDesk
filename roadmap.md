@@ -58,8 +58,13 @@ never below max(0.75×ATR(1d), 15× round-trip cost)). Evidence and the ordered
 plan below come from the 2026-09-26 strategy review; each item is judged by the
 outcome layer, not by in-sample score.
 
-28. WF-5 remainder: scheduled daily resolution + UI stats dashboard; paper
-    ledger with execution-vs-model gap logging (slippage, missed fills, funding).
+28. ✅ **Shipped 2026-09-28** — WF-5 remainder: scheduled daily resolution
+    (`scheduler.py`: one pass per local day while the server runs, hourly
+    retry on failure) + UI stats dashboard (Outcomes view over
+    `GET /api/outcomes`; `POST /api/outcomes/resolve` for on-demand passes);
+    paper ledger with execution-vs-model gap logging (`paper.py`:
+    fill/miss decisions, entry slippage in R, missed fills, crypto funding
+    drag). One shared pipeline (`resolver.py`) serves CLI, API and scheduler.
 29. Universe integrity: liquidity filter using the volume/market_cap columns the
     movers tool already fetches; point-in-time universe comparison (incl.
     delisted/dormant names) to size the selection/survivorship bias before

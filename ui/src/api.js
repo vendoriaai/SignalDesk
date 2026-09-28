@@ -29,6 +29,12 @@ export const getOnboarding = () => api("/api/onboarding");
 export const finishOnboarding = () => api("/api/onboarding/finish", { method: "POST" });
 export const getUpdateCheck = () => api("/api/update-check");
 export const getVersion = () => api("/api/version");
+export const getOutcomes = () => api("/api/outcomes");
+export const resolveOutcomes = (body = {}) => api("/api/outcomes/resolve", { method: "POST", body });
+export const paperFill = (signalId, price, note = "") =>
+  api(`/api/paper/${encodeURIComponent(signalId)}/fill`, { method: "POST", body: { price, note } });
+export const paperMiss = (signalId, note = "") =>
+  api(`/api/paper/${encodeURIComponent(signalId)}/miss`, { method: "POST", body: { note } });
 
 export function wsUrl(runId) {
   const proto = location.protocol === "https:" ? "wss" : "ws";

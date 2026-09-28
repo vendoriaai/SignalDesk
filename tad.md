@@ -96,7 +96,7 @@ Vite + React (or Vue): Chat view with streaming step cards (Search / Tool call /
 ### 3.7 `packaging/`
 GitHub Actions matrix (windows-latest, macos-14, ubuntu-latest): pip → PyInstaller spec → installer build → artifact publish to GitHub Releases. Auto-update via a tiny update-manifest check (TUF-style; v1 can ship manual download).
 
-### 3.8 Measurement layer — `costs.py` · `ledger.py` · `outcomes.py` · `metrics.py`
+### 3.8 Measurement layer — `costs.py` · `ledger.py` · `outcomes.py` · `metrics.py` · `resolver.py` · `scheduler.py` · `paper.py`
 Deliberately framework-free (no backtesting engine): signals are discrete
 records with levels, so the honest evaluation is a resolver over OHLCV
 artifacts, not a position-accounting engine.
@@ -117,6 +117,26 @@ artifacts, not a position-accounting engine.
   (signals in one week are one correlated bet), Wilson hit-rate interval,
   profit factor, median bars-to-TP1, breakdowns, and explicit small-sample
   caveats. Surfaced by `signaldesk outcomes` / `signaldesk ledger`.
+- `resolver.py` — the shared resolution pipeline (WF-5, item 28): ledger
+  selection + filters → per-market daily bars → triple-barrier →
+  `outcomes.jsonl` → joined rows. The only entry point for resolution; the
+  CLI `outcomes` command, `POST /api/outcomes/resolve` and the scheduler all
+  call it. `signal_rows()` joins ledger + latest resolutions for the
+  dashboard without fetching.
+- `scheduler.py` — server background loop (FastAPI lifespan): one resolution
+  pass per local day (on startup when pending), hourly retry after failure;
+  state in `outcomes_state.json` powers the dashboard's "last pass" line.
+  Off-switch: `SIGNALDESK_SCHEDULER=0`.
+- `paper.py` — append-only `paper.jsonl` of fill/miss decisions per signal
+  (first decision wins; events require a known ledger signal_id). Stats:
+  fill rate, direction-aware entry gap in R vs the modelled entry, crypto
+  funding drag over resolved holds. Additive to the R7 accounting — outcomes
+  keep resolving the modelled plan; paper events measure the
+  execution-vs-model gap without re-labelling anything.
+
+API/UI surface: `GET /api/outcomes` (cached, never fetches bars),
+`POST /api/outcomes/resolve`, `POST /api/paper/{signal_id}/fill|miss`, and the
+Outcomes dashboard view in the React UI.
 
 Contract: the ledger is the only source of truth about what was emitted; the
 resolver never re-derives signals from history (avoids the selection bias of
@@ -161,6 +181,7 @@ signaldesk/
   workflows/            # market_scan.py (WF-1/3/4), deep_dive.py (WF-2), entry_refine.py
   report/               # schema.py, render.py
   costs.py  ledger.py  outcomes.py  metrics.py   # measurement layer (TAD 3.8)
+  resolver.py scheduler.py paper.py              # WF-5: pipeline, daily loop, paper log
   markets.py  watchlists.py  store.py  userconfig.py  sync.py
   ui/                   # React app (dist/ served by api.py)
   evals/                # planner/workflow corpus runner

@@ -13,6 +13,7 @@ import asyncio
 import json
 import queue
 import threading
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -120,6 +121,18 @@ class SettingsIn(BaseModel):
     secrets: dict[str, str] = {}  # SECRET_KEYS -> value; "" clears
 
 
+class ResolveIn(BaseModel):
+    market: str = ""
+    demo: bool = False
+    include_demo: bool = False
+    horizon: int = 14
+
+
+class PaperIn(BaseModel):
+    price: float | None = None        # actual fill price (fills only)
+    note: str = ""
+
+
 def create_app(config: Config | None = None) -> FastAPI:
     import os
 
@@ -131,7 +144,26 @@ def create_app(config: Config | None = None) -> FastAPI:
     settings = userconfig.Settings(config.data_dir)
     runs = RunManager()
 
-    app = FastAPI(title="SignalDesk", version="1.0.0")
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> None:
+        """Start/stop the daily outcome-resolution loop (WF-5; tests may
+        disable it with SIGNALDESK_SCHEDULER=0)."""
+        stop = asyncio.Event()
+        task = None
+        if os.environ.get("SIGNALDESK_SCHEDULER", "1").strip().lower() not in ("0", "false", "off"):
+            from . import scheduler as scheduler_mod
+
+            task = asyncio.create_task(scheduler_mod.loop(config.data_dir, stop))
+        yield
+        if task is not None:
+            stop.set()
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+    app = FastAPI(title="SignalDesk", version="1.0.0", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
     )
@@ -382,6 +414,87 @@ def create_app(config: Config | None = None) -> FastAPI:
     def history(limit: int = 50) -> dict:
         return {"sessions": [s.model_dump(mode="json") for s in store.list_sessions(limit)],
                 "signals": [s.model_dump(mode="json") for s in store.list_signals(100)]}
+
+    # --- REST: outcomes dashboard (WF-5) ----------------------------------------
+    def _outcomes_payload(rows: list[dict], *, stale: bool) -> dict:
+        import dataclasses
+
+        from . import ledger as ledger_mod
+        from . import metrics as metrics_mod
+        from . import outcomes as outcomes_mod
+        from . import paper as paper_mod
+        from . import resolver as resolver_mod
+        from . import scheduler as scheduler_mod
+
+        records_by_id = {r.signal_id: r
+                         for r in ledger_mod.read_records(ledger_mod.ledger_path(config.data_dir))}
+        latest = outcomes_mod.load_latest(outcomes_mod.outcomes_path(config.data_dir))
+        signals = resolver_mod.signal_rows(config.data_dir, limit=200)
+        paper_by_id = paper_mod.first_events(config.data_dir)
+        for row in signals:
+            ev = paper_by_id.get(row["signal_id"])
+            row["paper"] = ev.model_dump() if ev else None
+        return {
+            "metrics": dataclasses.asdict(metrics_mod.summarize(rows)),
+            "resolutions": rows,
+            "signals": signals,
+            "paper": paper_mod.paper_stats(config.data_dir, records_by_id, latest),
+            "scheduler": scheduler_mod.load_state(config.data_dir),
+            "stale": stale,
+        }
+
+    @app.get("/api/outcomes")
+    def outcomes_view(market: str = "", include_demo: bool = False) -> dict:
+        """Cached outcome statistics (never fetches bars — the scheduler and
+        POST /api/outcomes/resolve populate outcomes.jsonl)."""
+        from . import ledger as ledger_mod
+        from . import outcomes as outcomes_mod
+        from . import resolver as resolver_mod
+
+        out_file = outcomes_mod.outcomes_path(config.data_dir)
+        ledger_file = ledger_mod.ledger_path(config.data_dir)
+        # stale = ledger signals exist but are newer than the last resolution pass
+        stale = ledger_file.is_file() and (
+            (not out_file.is_file()) or ledger_file.stat().st_mtime > out_file.stat().st_mtime)
+        rows: list[dict] = []
+        if out_file.is_file():
+            records = resolver_mod.select_records(config.data_dir, market=market or None,
+                                                  include_demo=include_demo, backfill=False)
+            rows = resolver_mod.join_rows(records, outcomes_mod.load_latest(out_file))
+        return _outcomes_payload(rows, stale=stale)
+
+    @app.post("/api/outcomes/resolve")
+    def outcomes_resolve(body: ResolveIn) -> dict:
+        """Resolve open ledger signals against daily bars now (blocking)."""
+        from . import resolver as resolver_mod
+
+        rows = resolver_mod.run_resolution(
+            config.data_dir, market=body.market or None, demo=body.demo,
+            include_demo=body.include_demo, horizon_bars=max(1, min(body.horizon, 250)))
+        return _outcomes_payload(rows, stale=False)
+
+    @app.post("/api/paper/{signal_id}/fill")
+    def paper_fill(signal_id: str, body: PaperIn | None = None) -> dict:
+        from . import paper as paper_mod
+
+        body = body or PaperIn()
+        try:
+            ev = paper_mod.log_event(config.data_dir, signal_id, "fill",
+                                     price=body.price, note=body.note)
+        except (KeyError, ValueError) as exc:
+            return {"error": str(exc.args[0] if exc.args else exc)}
+        return ev.model_dump()
+
+    @app.post("/api/paper/{signal_id}/miss")
+    def paper_miss(signal_id: str, body: PaperIn | None = None) -> dict:
+        from . import paper as paper_mod
+
+        body = body or PaperIn()
+        try:
+            ev = paper_mod.log_event(config.data_dir, signal_id, "miss", note=body.note)
+        except (KeyError, ValueError) as exc:
+            return {"error": str(exc.args[0] if exc.args else exc)}
+        return ev.model_dump()
 
     # --- REST: watchlists ----------------------------------------------------
     @app.get("/api/watchlists")

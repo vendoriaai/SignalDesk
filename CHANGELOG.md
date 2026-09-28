@@ -5,6 +5,26 @@ All notable changes to SignalDesk are documented here.
 ## [Unreleased]
 
 ### Added
+- **WF-5 remainder (roadmap item 28) — outcomes in the app, on a schedule:**
+  - Scheduled daily resolution: a server background loop (`scheduler.py`)
+    runs one resolution pass per local day — immediately on startup when
+    today's pass hasn't happened yet, hourly retry after a failure (state in
+    `outcomes_state.json`; disable with `SIGNALDESK_SCHEDULER=0`).
+  - Outcomes dashboard in the UI: expectancy in R with CI, hit rate, profit
+    factor, cost drag, exit-policy variants, breakdowns by market/entry mode,
+    and the per-signal ledger table. `GET /api/outcomes` serves the cached
+    resolutions (never fetches bars); `POST /api/outcomes/resolve` or the
+    dashboard's "Resolve now" button triggers a fresh pass.
+  - Paper execution log (`paper.py`, append-only `paper.jsonl`): mark each
+    signal filled (with the real price) or missed — from the dashboard row or
+    `signaldesk paper fill|miss|list`. Reports fill rate, direction-aware
+    entry slippage in R, and crypto funding drag over resolved holds.
+    Outcomes keep resolving the modelled plan (rule R7): paper events are
+    additive measurement of the execution-vs-model gap, and the first
+    fill/miss decision per signal is the one that counts.
+  - Shared resolution pipeline (`resolver.py`): the CLI `outcomes` command,
+    the API resolve endpoint and the scheduler now run one code path
+    (ledger filters → per-market bars → triple-barrier → `outcomes.jsonl`).
 - **P0 measurement layer** — you cannot improve what you do not measure:
   - Signal ledger (`signaldesk/ledger.py`, `~/.signaldesk/signals.jsonl`):
     every emitted signal recorded append-only with actionable levels + entry

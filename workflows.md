@@ -175,13 +175,30 @@ WF-1 with: Alpha Vantage FX daily/intraday adapters; DXY, yields (FRED macro sna
 ## WF-4 · Custom Watchlist Scan
 WF-1 where universe = user's synced watchlist; per-asset mini-reports; "what changed since my last scan" diff section.
 
-## WF-5 · Signal Outcome Tracker  *(P0 shipped as CLI; v1.1 adds the rest)*
-Shipped: the signal ledger (Phase 9), the triple-barrier resolver, and
+## WF-5 · Signal Outcome Tracker  *(shipped through roadmap item 28, 2026-09-28)*
+Shipped: the signal ledger (Phase 9), the triple-barrier resolver,
 `signaldesk outcomes` (expectancy in R net of cost, hit rate, profit factor,
-time-to-TP1, MFE/MAE, breakdowns, with CIs and sample-size caveats). Still
-v1.1: a scheduled daily resolver run, a UI stats dashboard ("last 30 signals:
-x% hit TP1"), execution-vs-model gap logging for paper trades, and
-paper/forward-test tracking separate from the historical sample.
+time-to-TP1, MFE/MAE, breakdowns, with CIs and sample-size caveats), and the
+item-28 remainder:
+
+- **Scheduled daily resolution** — while the server runs, a background loop
+  resolves the ledger once per local day (immediately on startup when today's
+  pass is pending; a failed pass is retried hourly and disclosed). State:
+  `<data_dir>/outcomes_state.json`; off-switch `SIGNALDESK_SCHEDULER=0`.
+- **UI stats dashboard** — the Outcomes view ("last 30 signals: x% hit TP1",
+  expectancy cards with CIs, breakdowns, per-signal status table). The view
+  reads cached resolutions (`GET /api/outcomes` never fetches bars);
+  resolution happens via the daily loop or the "Resolve now" button
+  (`POST /api/outcomes/resolve`).
+- **Paper execution log** — mark each open signal filled (with the real
+  price) or missed, from the dashboard row or `signaldesk paper fill|miss|list`.
+  Reports fill rate, direction-aware entry slippage in R, and crypto funding
+  drag over resolved holds. Kept additive to the R7 accounting: outcomes keep
+  resolving the modelled plan, the first fill/miss decision per signal counts,
+  and the gap stats (execution-vs-model) never re-label a resolution.
+
+One pipeline (`resolver.py`) serves the CLI, the API and the scheduler, so
+there is exactly one place where resolution conventions live.
 
 ---
 

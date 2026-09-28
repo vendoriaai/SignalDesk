@@ -80,18 +80,18 @@ When the user requests a durable behavior change, record it here or in the relev
 
 ## Child DOX Index
 
-Project tree after the P0 measurement work (2026-09-27, v1.0.0 + unreleased).
+Project tree after the WF-5 item-28 work (2026-09-28, v1.0.0 + unreleased).
 Git: origin https://github.com/vendoriaai/SignalDesk, default branch `main`.
 No child AGENTS.md files: the tree is a single small package and the existing docs
 already own each boundary. Split out a child AGENTS.md when a subtree gains its own
 durable rules beyond what the docs below state.
 
-- `README.md` — quickstart, current feature status, dev commands (incl. `signaldesk outcomes`/`ledger`)
-- `CHANGELOG.md` — release notes (v1.0.0; Unreleased carries the measurement layer)
+- `README.md` — quickstart, current feature status, dev commands (incl. `signaldesk outcomes`/`ledger`/`paper`)
+- `CHANGELOG.md` — release notes (v1.0.0; Unreleased carries the measurement layer + WF-5 item 28)
 - `prd.md` — product spec (assumptions, FR/NFR, milestones)
 - `tad.md` — architecture of record; module contracts (incl. §3.8 measurement layer)
-- `workflows.md` — agent workflow specs (WF-1..WF-4 implemented; WF-5 CLI part shipped); global rules R1–R7
-- `roadmap.md` — phase plan; current position: Phase 4 done (packaging), P0 measurement foundation shipped, Phase 5 items 28–37 next
+- `workflows.md` — agent workflow specs (WF-1..WF-5 shipped; WF-5 through roadmap item 28); global rules R1–R7
+- `roadmap.md` — phase plan; current position: Phase 5 item 28 done (WF-5 remainder, 2026-09-28), items 29–37 next
 - `data-model.sql` — Supabase schema + RLS (must be applied to the hosted project before /api/sync works)
 - `update-manifest.json` — current-release manifest (bump on every release; powers /api/update-check)
 - `logo.svg` / `logo.ico` — brand mark (indigo tile, white signal wave + node dot);
@@ -122,16 +122,26 @@ durable rules beyond what the docs below state.
   weights fingerprint, demo flag; `backfill()` from past reports),
   `outcomes.py` (triple-barrier resolver; declared conventions in the module
   docstring), `metrics.py` (expectancy/CI/hit-rate/profit-factor/breakdowns),
+  `resolver.py` (the single WF-5 resolution pipeline shared by CLI, API and
+  scheduler), `scheduler.py` (server daily-resolution loop; one pass per
+  local day, hourly retry, `SIGNALDESK_SCHEDULER=0` off-switch),
+  `paper.py` (append-only `paper.jsonl`: fill/miss decisions, first per
+  signal wins; fill rate + entry-gap-in-R + crypto funding drag, additive
+  to the R7 accounting),
   `watchlists.py` (local JSON store), `store.py` (SQLite/SQLModel cache),
   `userconfig.py` (keychain secrets: LLM incl. OpenRouter, search, data, Supabase tokens),
   `sync.py` (Supabase REST, consent-gated), `api.py` (FastAPI + WS + chart
-  endpoint /api/runs/{id}/charts/{name}.png), `desktop.py` (pywebview shell),
+  endpoint /api/runs/{id}/charts/{name}.png + outcomes dashboard endpoints
+  /api/outcomes, /api/outcomes/resolve, /api/paper/{id}/fill|miss),
+  `desktop.py` (pywebview shell),
   `updates.py` (update manifest check; manual download in v1), `cli.py`
 - `ui/` — React/Vite frontend (chat with live trace incl. chart events +
   "Charts analyzed" gallery; history view replays the persisted trace and the
-  same gallery via `/api/runs/{id}`; build output in `signaldesk/ui/dist`,
+  same gallery via `/api/runs/{id}`; Outcomes stats dashboard reads cached
+  resolutions and logs paper fill/miss from open signal rows; build output
+  in `signaldesk/ui/dist`,
   served by api.py). The outcome statistics are CLI-only for now (Phase 5 item 28).
-- `tests/` — pytest suite (135 tests); new modules must add coverage here
+- `tests/` — pytest suite (160 tests); new modules must add coverage here
 
 Root-level rules: keep every report figure cited (R1), read-only tools only, degrade
 with disclosure instead of failing (R4), no "signals = prediction" wording anywhere,

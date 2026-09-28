@@ -5,6 +5,7 @@ import ChatView from "./ChatView.jsx";
 import HistoryView from "./HistoryView.jsx";
 import WatchlistsView from "./WatchlistsView.jsx";
 import SettingsView from "./SettingsView.jsx";
+import OutcomesView from "./OutcomesView.jsx";
 import Onboarding from "./Onboarding.jsx";
 import { getAuthStatus, getOnboarding, getUpdateCheck } from "./api.js";
 
@@ -35,6 +36,7 @@ export default function App() {
         <nav>
           <button className={view === "chat" ? "active" : ""} onClick={() => setView("chat")}>Chat</button>
           <button className={view === "history" ? "active" : ""} onClick={() => setView("history")}>History</button>
+          <button className={view === "outcomes" ? "active" : ""} onClick={() => setView("outcomes")}>Outcomes</button>
           <button className={view === "watchlists" ? "active" : ""} onClick={() => setView("watchlists")}>Watchlists</button>
           <button className={view === "settings" ? "active" : ""} onClick={() => setView("settings")}>Settings</button>
         </nav>
@@ -53,6 +55,7 @@ export default function App() {
         )}
         {view === "chat" && <ChatView />}
         {view === "history" && <HistoryView />}
+        {view === "outcomes" && <OutcomesView />}
         {view === "watchlists" && <WatchlistsView />}
         {view === "settings" && <SettingsView onAuthChange={setAuth} />}
       </main>

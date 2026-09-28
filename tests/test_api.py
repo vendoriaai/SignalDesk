@@ -11,6 +11,7 @@ from signaldesk.config import Config
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("SIGNALDESK_HOME", str(tmp_path))
+    monkeypatch.setenv("SIGNALDESK_SCHEDULER", "0")
     monkeypatch.setenv("TAVILY_API_KEY", "")
     monkeypatch.setenv("OPENAI_API_KEY", "")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "")
@@ -118,8 +119,6 @@ def test_run_detail_replays_trace_after_restart(client, tmp_path):
 
 
 def test_settings_roundtrip_and_masking(client, monkeypatch):
-    import keyring
-    from keyring.backend import KeyringBackend
 
     monkeypatch.setattr("signaldesk.userconfig.get_secret", lambda k: "sk-test-123456" if k == "OPENAI_API_KEY" else None, raising=False)
     # simplest: monkeypatch module functions to an in-memory dict
@@ -143,3 +142,80 @@ def test_settings_roundtrip_and_masking(client, monkeypatch):
 def test_sync_refused_without_consent(client):
     resp = client.post("/api/sync")
     assert "consent off" in resp.json()["error"]
+
+
+# --- WF-5: outcomes dashboard + paper execution log --------------------------
+
+def _seed_signal(tmp_path, **over):
+    from signaldesk import ledger as ledger_mod
+
+    base = dict(signal_id="run1:BTCUSD", created_at="2026-09-02T00:00:00+00:00",
+                run_id="run1", market="crypto", symbol="BTCUSD", score=80.0,
+                entry=100.0, stop=95.0, tp1=110.0, tp2=115.0,
+                risk=5.0, risk_pct=5.0, cost_pct=0.25, cost_in_r=0.05,
+                bars_last_date="2026-06-01")
+    base.update(over)
+    rec = ledger_mod.LedgerRecord(**base)
+    ledger_mod.append_records(ledger_mod.ledger_path(tmp_path), [rec])
+    return rec
+
+
+def test_outcomes_endpoint_empty(client):
+    data = client.get("/api/outcomes").json()
+    assert data["metrics"]["n_rows"] == 0
+    assert data["signals"] == [] and data["resolutions"] == []
+    assert data["stale"] is False          # nothing to resolve: no pending state
+    assert data["scheduler"] == {}
+
+
+def test_outcomes_resolve_and_cached_view(client):
+    _seed_signal(client.app.state.config.data_dir)
+    data = client.post("/api/outcomes/resolve", json={"demo": True}).json()
+    assert data["metrics"]["n_rows"] == 1
+    assert data["resolutions"][0]["status"] in ("tp1", "tp2", "sl", "time")
+    assert data["stale"] is False
+
+    cached = client.get("/api/outcomes").json()
+    assert cached["metrics"]["n_rows"] == 1
+    assert cached["signals"][0]["symbol"] == "BTCUSD"
+    assert cached["signals"][0]["status"] == data["resolutions"][0]["status"]
+
+
+def test_paper_flow_via_api(client):
+    data_dir = client.app.state.config.data_dir
+    rec = _seed_signal(data_dir)
+
+    unknown = client.post("/api/paper/nope:BTCUSD/fill", json={"price": 101}).json()
+    assert "error" in unknown
+
+    fill = client.post(f"/api/paper/{rec.signal_id}/fill", json={"price": 101}).json()
+    assert fill["event"] == "fill" and fill["price"] == 101
+
+    data = client.get("/api/outcomes").json()
+    assert data["paper"]["fills"] == 1
+    assert data["paper"]["mean_entry_gap_r"] == pytest.approx(-0.2)  # (100-101)/5
+    assert data["signals"][0]["paper"]["event"] == "fill"
+
+
+def test_paper_miss_and_fill_rate(client):
+    data_dir = client.app.state.config.data_dir
+    rec = _seed_signal(data_dir)
+    other = _seed_signal(data_dir, signal_id="run1:ETHUSD", symbol="ETHUSD")
+    client.post(f"/api/paper/{rec.signal_id}/fill", json={"price": 100})
+    client.post(f"/api/paper/{other.signal_id}/miss", json={})
+    data = client.get("/api/outcomes").json()
+    assert data["paper"]["fill_rate"] == 0.5
+    assert data["paper"]["misses"] == 1
+
+
+def test_scheduler_runs_daily_pass_on_startup(tmp_path, monkeypatch):
+    monkeypatch.setenv("SIGNALDESK_SCHEDULER", "1")
+    with TestClient(create_app(Config(data_dir=tmp_path))) as c:
+        for _ in range(50):                    # background thread: poll briefly
+            data = c.get("/api/outcomes").json()
+            if data["scheduler"].get("last_status"):
+                assert data["scheduler"]["last_status"] == "ok"
+                assert data["scheduler"]["last_resolution_date"] is not None
+                return
+            time.sleep(0.1)
+    pytest.fail("scheduler never ran its startup pass")
