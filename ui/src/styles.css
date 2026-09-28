@@ -76,6 +76,9 @@ body { margin: 0; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; ba
 .oc-signals .oc-table { display: block; overflow-x: auto; }
 .status-open { color: #d29922; } .status-time { color: #8b949e; }
 .status-tp1, .status-tp2 { color: #3fb950; } .status-sl { color: #f85149; } .status-no_data { color: #6e7681; }
+.oc-mtm-when { font-size: 12px; font-weight: 400; }
+.mtm-live { font-weight: 600; cursor: default; }
+.mtm-pos { color: #3fb950; } .mtm-neg { color: #f85149; }
 .paper-actions { display: inline-flex; gap: 4px; align-items: center; }
 .paper-price { width: 90px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #e6edf3; padding: 4px 6px; font-size: 12px; }
 .paper-actions button { background: #1f6feb; border: none; color: #fff; border-radius: 5px; padding: 4px 8px; font-size: 12px; cursor: pointer; }

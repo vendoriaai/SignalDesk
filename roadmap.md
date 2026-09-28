@@ -65,6 +65,9 @@ outcome layer, not by in-sample score.
     paper ledger with execution-vs-model gap logging (`paper.py`:
     fill/miss decisions, entry slippage in R, missed fills, crypto funding
     drag). One shared pipeline (`resolver.py`) serves CLI, API and scheduler.
+    Extension (same day): live mark-to-market — the hourly server check also
+    refreshes a quote snapshot (`mtm.py` → `mtm.json`) so open signals show
+    unrealized R on the dashboard between resolution passes.
 29. ✅ **Shipped 2026-09-28** — Universe integrity: liquidity screen on movers
     picks (declared floors — crypto $5M 24h volume / $50M market cap, cited in
     the report; a missing tape keeps the name; FX/metals untouched) + the

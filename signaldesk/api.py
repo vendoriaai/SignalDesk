@@ -425,6 +425,7 @@ def create_app(config: Config | None = None) -> FastAPI:
         from . import paper as paper_mod
         from . import resolver as resolver_mod
         from . import scheduler as scheduler_mod
+        from . import mtm as mtm_mod
         from . import universe as universe_mod
 
         records_by_id = {r.signal_id: r
@@ -445,6 +446,7 @@ def create_app(config: Config | None = None) -> FastAPI:
             "signals": signals,
             "paper": paper_mod.paper_stats(config.data_dir, records_by_id, latest),
             "scheduler": scheduler_mod.load_state(config.data_dir),
+            "mtm": mtm_mod.load_mtm(config.data_dir),
             "stale": stale,
         }
 

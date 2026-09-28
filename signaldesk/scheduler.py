@@ -21,6 +21,7 @@ import threading
 from datetime import date, datetime
 from pathlib import Path
 
+from . import mtm as mtm_mod
 from . import resolver as resolver_mod
 
 CHECK_INTERVAL_S = 3600
@@ -82,12 +83,17 @@ def run_if_due(data_dir: Path, *, now: datetime | None = None) -> dict | None:
 
 
 async def loop(data_dir: Path, stop_event: asyncio.Event) -> None:
-    """Hourly check; resolves when the day's pass is still pending."""
+    """Hourly check; resolves when the day's pass is still pending, and
+    refreshes the live mark-to-market snapshot for open signals."""
     while not stop_event.is_set():
         try:
             await asyncio.to_thread(run_if_due, data_dir)
         except Exception:
             pass  # never kill the server loop; run_if_due records failures
+        try:
+            await asyncio.to_thread(mtm_mod.refresh, data_dir)
+        except Exception:
+            pass  # a failed snapshot keeps the previous one (mtm.refresh, R4)
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=CHECK_INTERVAL_S)
         except asyncio.TimeoutError:

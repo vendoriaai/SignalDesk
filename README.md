@@ -151,7 +151,10 @@ to `~/.signaldesk/signaldesk.db` (SQLite).
     open signals once per local day against fresh daily bars; the Outcomes
     dashboard shows expectancy/hit-rate/profit-factor with intervals, and each
     open signal can be paper-logged as filled (real price → entry-slippage
-    measurement) or missed (fill-rate measurement).
+    measurement) or missed (fill-rate measurement). Open signals also carry a
+    live mark-to-market — unrealized R from the latest quote, refreshed hourly
+    by the server loop — so "is this in profit yet?" is answered automatically
+    between resolution passes.
 12. **Universe integrity** (item 29): movers picks pass a liquidity screen
     (declared crypto floors — $5M 24h volume, $50M market cap — cited in the
     report; a missing tape keeps the name, disclosed), and `signaldesk

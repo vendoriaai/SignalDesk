@@ -5,6 +5,14 @@ All notable changes to SignalDesk are documented here.
 ## [Unreleased]
 
 ### Added
+- **Live mark-to-market for open signals (WF-5):** open signals now show
+  where they stand right now instead of a blank `+0.00R`. The server loop
+  refreshes a snapshot (`mtm.json`) of current quotes per open signal on
+  every hourly check and computes the unrealized R (direction-aware, using
+  the signal's own risk unit); the dashboard shows it in green/red with an
+  as-of stamp. A snapshot, not a resolution: barrier hits still confirm only
+  on closed daily bars (rule R7 unchanged), and a fully degraded quote fetch
+  keeps the previous snapshot (rule R4).
 - **Universe integrity (roadmap item 29) — keep the outcome sample honest:**
   - Liquidity screen in WF Phase 2: movers picks below declared crypto floors
     ($5M 24h volume / $50M market cap, cited in the report like the cost

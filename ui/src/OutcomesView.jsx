@@ -76,6 +76,11 @@ export default function OutcomesView() {
     : "no resolution pass yet";
   const signals = data?.signals || [];
   const openSignals = signals.filter((s) => !s.status || s.status === "open" || s.status === "no_data");
+  const mtm = data?.mtm || {};
+  const mtmRows = mtm.rows || {};
+  const mtmText = mtm.fetched_at
+    ? `live mark-to-market as of ${mtm.fetched_at.slice(0, 16).replace("T", " ")}`
+    : "";
 
   return (
     <div className="outcomes">
@@ -137,7 +142,10 @@ export default function OutcomesView() {
 
       {signals.length > 0 && (
         <div className="oc-signals">
-          <h3>{openSignals.length > 0 ? `Signals (${signals.length}, ${openSignals.length} open)` : `Signals (${signals.length})`}</h3>
+          <h3>
+            {openSignals.length > 0 ? `Signals (${signals.length}, ${openSignals.length} open)` : `Signals (${signals.length})`}
+            {mtmText && <span className="muted oc-mtm-when"> · {mtmText}</span>}
+          </h3>
           <table className="oc-table">
             <thead>
               <tr>
@@ -154,7 +162,23 @@ export default function OutcomesView() {
                   <td>{fmtPx(s.entry)}</td><td>{fmtPx(s.stop)}</td>
                   <td>{fmtPx(s.tp1)}</td><td>{fmtPx(s.tp2)}</td>
                   <td><span className={`status status-${s.status}`}>{s.status}</span></td>
-                  <td>{s.r_net == null ? "—" : fmtR(s.r_net)}</td>
+                  <td>
+                    {(() => {
+                      const isOpen = !s.status || s.status === "open" || s.status === "no_data";
+                      const live = isOpen ? mtmRows[s.signal_id] : null;
+                      if (live && live.r_unrealized != null) {
+                        return (
+                          <span
+                            className={`mtm-live ${live.r_unrealized >= 0 ? "mtm-pos" : "mtm-neg"}`}
+                            title={`mark-to-market @ ${fmtPx(live.price)}`}
+                          >
+                            {fmtR(live.r_unrealized)}
+                          </span>
+                        );
+                      }
+                      return s.r_net == null ? "—" : fmtR(s.r_net);
+                    })()}
+                  </td>
                   <td>
                     {s.paper
                       ? <span className="muted">{s.paper.event}{s.paper.price != null ? ` @ ${fmtPx(s.paper.price)}` : ""}</span>

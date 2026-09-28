@@ -128,6 +128,9 @@ durable rules beyond what the docs below state.
   `paper.py` (append-only `paper.jsonl`: fill/miss decisions, first per
   signal wins; fill rate + entry-gap-in-R + crypto funding drag, additive
   to the R7 accounting),
+  `mtm.py` (live mark-to-market for open signals: hourly quote snapshot in
+  `mtm.json`, direction-aware unrealized R, served cached with /api/outcomes;
+  barriers still confirm only on closed daily bars),
   `universe.py` (universe integrity, item 29: liquidity screen on movers
   picks — declared floors, cited, missing tape kept; point-in-time
   survivorship audit via `signaldesk universe`, cached in
@@ -145,7 +148,7 @@ durable rules beyond what the docs below state.
   resolutions and logs paper fill/miss from open signal rows; build output
   in `signaldesk/ui/dist`,
   served by api.py). The universe audit is CLI-only for now (Phase 5 item 29).
-- `tests/` — pytest suite (170 tests); new modules must add coverage here
+- `tests/` — pytest suite (181 tests); new modules must add coverage here
 
 Root-level rules: keep every report figure cited (R1), read-only tools only, degrade
 with disclosure instead of failing (R4), no "signals = prediction" wording anywhere,

@@ -96,7 +96,7 @@ Vite + React (or Vue): Chat view with streaming step cards (Search / Tool call /
 ### 3.7 `packaging/`
 GitHub Actions matrix (windows-latest, macos-14, ubuntu-latest): pip → PyInstaller spec → installer build → artifact publish to GitHub Releases. Auto-update via a tiny update-manifest check (TUF-style; v1 can ship manual download).
 
-### 3.8 Measurement layer — `costs.py` · `ledger.py` · `outcomes.py` · `metrics.py` · `resolver.py` · `scheduler.py` · `paper.py` · `universe.py`
+### 3.8 Measurement layer — `costs.py` · `ledger.py` · `outcomes.py` · `metrics.py` · `resolver.py` · `scheduler.py` · `paper.py` · `mtm.py` · `universe.py`
 Deliberately framework-free (no backtesting engine): signals are discrete
 records with levels, so the honest evaluation is a resolver over OHLCV
 artifacts, not a position-accounting engine.
@@ -133,6 +133,12 @@ artifacts, not a position-accounting engine.
   funding drag over resolved holds. Additive to the R7 accounting — outcomes
   keep resolving the modelled plan; paper events measure the
   execution-vs-model gap without re-labelling anything.
+- `mtm.py` — live mark-to-market for open signals: the scheduler's hourly
+  check also refreshes a quote snapshot (`mtm.json`) and computes
+  direction-aware unrealized R per open signal (its own risk unit). Served
+  with `/api/outcomes` as a cached read — request handlers never fetch
+  quotes. A snapshot, not a resolution: barriers still confirm only on
+  closed daily bars; a fully degraded fetch keeps the previous snapshot (R4).
 - `universe.py` — universe integrity (item 29): the liquidity screen applied
   to WF Phase 2 movers picks (declared per-market floors, cited as
   `source_tool="liquidity_screen"`; a missing tape keeps the name) and the

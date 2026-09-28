@@ -70,7 +70,10 @@ The same statistics live in the desktop app's **Outcomes** view — while the
 server runs, a background loop resolves open signals once per local day, and
 each open signal can be paper-logged as *filled* (with the real price, to
 measure entry slippage) or *missed* (to measure fill rate) — or logged from
-the CLI with `signaldesk paper fill|miss|list`.
+the CLI with `signaldesk paper fill|miss|list`. Open signals also carry a
+live mark-to-market (unrealized R from the latest quote, refreshed hourly by
+the server loop) — a snapshot of where the trade stands, not a barrier hit:
+TP/stop results still confirm only on closed daily bars.
 
 Two more guards keep that sample honest. The scan screens crypto movers picks
 through declared liquidity floors ($5M 24h volume, $50M market cap — cited in
