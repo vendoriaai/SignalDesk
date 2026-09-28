@@ -97,6 +97,17 @@ freezes its signal-time context (24h change, volume ratio, RSI, SMA
 distances, BTC 20d momentum), so conditioning analyses ("do signals fired
 after a pump do worse?") are possible without re-deriving history.
 
+## Recommended sizing (what the report suggests)
+
+Each signal carries a sizing recommendation: inverse-volatility account risk
+in the 0.5–1% band (a median-volatility setup risks 0.75%), with the implied
+notional shown so leverage is visible. The whole market's book is
+cluster-capped at 3% total account risk — crypto signals run 0.6–0.9
+correlated, so ten simultaneous longs are ~1.4 independent bets, not ten.
+It is advice only: SignalDesk never places orders, and the outcome
+statistics keep measuring the plan's own risk unit regardless of what you
+stake.
+
 ## Writing your own preset
 
 ```python

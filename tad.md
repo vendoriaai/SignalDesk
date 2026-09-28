@@ -204,6 +204,7 @@ signaldesk/
   citations/            # direct + derived provenance
   analysis/             # indicators.py, charts.py
   strategy/scoring.py   # presets, trade plans, risk floor, entry refinement
+  strategy/sizing.py    # recommended account sizing (item 30): inverse-vol + cluster cap
   workflows/            # market_scan.py (WF-1/3/4), deep_dive.py (WF-2), entry_refine.py
   report/               # schema.py, render.py
   costs.py  ledger.py  outcomes.py  metrics.py   # measurement layer (TAD 3.8)

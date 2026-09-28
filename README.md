@@ -31,7 +31,8 @@ chat, intraday entry refinement (30m/15m/5m/1m, Phase 7.5), the P0
 measurement layer — a signal ledger, triple-barrier outcome resolver and
 `signaldesk outcomes` (expectancy in R net of cost, with confidence intervals),
 plus a cost-aware risk floor so stops cannot be tighter than trading costs
-allow — the WF-5 remainder (roadmap item 28): a scheduled daily resolver,
+allow, and inverse-volatility position-sizing advice with a per-market
+cluster cap (item 30) — the WF-5 remainder (roadmap item 28): a scheduled daily resolver,
 the Outcomes stats dashboard in the UI, and a paper execution log for the
 execution-vs-model gap — and universe integrity (item 29): a liquidity
 screen on movers picks plus `signaldesk universe`, a point-in-time audit
@@ -143,13 +144,18 @@ to `~/.signaldesk/signaldesk.db` (SQLite).
    (15m EMA21 zone) vs. wait for LTF recovery. Stops may tighten only down to
    the same risk floor (~25% max), TP1/TP2 stay 2R/3R on the refined risk, and
    every level is its own derived citation. Disable via Settings or `--entry-tf off`.
-9. **Critique**: citation coverage + overextended checks → `ScanReport`
-   (Markdown + JSON).
-10. **Ledger**: every emitted signal is appended to `~/.signaldesk/signals.jsonl`
+9.  **Position sizing** (item 30, advice only): each signal carries a
+    recommended account risk — inverse-volatility in the 0.5-1% band
+    (median-volatility signal = 0.75%), cluster-capped at 3% total per
+    market (correlated positions are fewer independent bets, not ten) — and
+    the implied notional so leverage is visible. SignalDesk never places orders.
+10. **Critique**: citation coverage + overextended checks → `ScanReport`
+    (Markdown + JSON).
+11. **Ledger**: every emitted signal is appended to `~/.signaldesk/signals.jsonl`
     with its snapshot hash and rule fingerprint, so `signaldesk outcomes` can
     score it later (expectancy in R net of cost, with confidence intervals and
     explicit sample-size caveats).
-11. **Outcome tracking** (WF-5): while the app runs, a background loop resolves
+12. **Outcome tracking** (WF-5): while the app runs, a background loop resolves
     open signals once per local day against fresh daily bars; the Outcomes
     dashboard shows expectancy/hit-rate/profit-factor with intervals, and each
     open signal can be paper-logged as filled (real price → entry-slippage
@@ -158,7 +164,7 @@ to `~/.signaldesk/signaldesk.db` (SQLite).
     latest quote, refreshed hourly by the server loop and every 5 minutes by
     the dashboard — so "is this in profit yet?" is answered automatically
     between resolution passes.
-12. **Universe integrity** (item 29): movers picks pass a liquidity screen
+13. **Universe integrity** (item 29): movers picks pass a liquidity screen
     (declared crypto floors — $5M 24h volume, $50M market cap — cited in the
     report; a missing tape keeps the name, disclosed), and `signaldesk
     universe` audits every past run's universe against today's bars to size

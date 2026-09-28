@@ -63,16 +63,27 @@ def to_markdown(report: ScanReport) -> str:
             "*R is the distance from entry to stop. Cost-in-R is the assumed "
             "round-trip cost (fees + spread + slippage) divided by R; the "
             "break-even win rate is the hit rate a 2R target needs just to cover "
-            "that cost. Stops are floored so this ratio stays small.*"
+            "that cost. Stops are floored so this ratio stays small. Sizing is "
+            "advice only — inverse-volatility account risk, cluster-capped per "
+            "market; SignalDesk never places orders.*"
         )
         lines.append("")
-        lines.append("| Symbol | R (price) | R as % | Round-trip cost | Cost in R | Break-even @TP1 |")
-        lines.append("|---|---|---|---|---|---|")
+        lines.append(
+            "| Symbol | R (price) | R as % | Account risk | Notional | Weight "
+            "| Round-trip cost | Cost in R | Break-even @TP1 |")
+        lines.append("|---|---|---|---|---|---|---|---|---|")
         for s in report.signals:
             risk = s.entry - s.stop
             risk_pct = (risk / s.entry * 100.0) if s.entry else 0.0
             be = cost_model.breakeven_win_rate(s.cost_in_r, 2.0)
+            if s.sizing:
+                acct = f"{s.sizing.risk_pct_account:.2f}%"
+                notional = f"~{s.sizing.notional_pct_account:.0f}%"
+                weight = f"{s.sizing.weight:.0%}"
+            else:
+                acct = notional = weight = "—"
             lines.append(f"| {s.symbol} | {_fmt(risk)} | {risk_pct:.2f}% | "
+                         f"{acct} | {notional} | {weight} | "
                          f"{s.cost_pct:g}% | {s.cost_in_r:.2f}R | {be:.0%} |")
         lines.append("")
     entry_plans = [s for s in report.signals if s.entry_plan]

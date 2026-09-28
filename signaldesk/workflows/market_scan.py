@@ -24,9 +24,17 @@ from signaldesk.agent.events import EventBus, EventKind
 from signaldesk.citations.registry import CitationRegistry
 from signaldesk.markets import DEFAULT_ENTRY_TIMEFRAMES, DEFAULT_TIMEFRAMES, PROFILES, MarketProfile, pip_size
 from signaldesk.report.render import to_json, to_markdown
-from signaldesk.report.schema import AvoidEntry, NewsClaim, ScanReport, SentimentReading, Signal
+from signaldesk.report.schema import (
+    AvoidEntry,
+    NewsClaim,
+    ScanReport,
+    SentimentReading,
+    Signal,
+    SignalSizing,
+)
 from signaldesk.sandbox.executor import run_script
 from signaldesk.strategy import scoring
+from signaldesk.strategy import sizing as sizing_mod
 
 _SANDBOX_SCRIPT = """\
 import json
@@ -471,6 +479,35 @@ def run_market_scan(req: MarketScanRequest, tools: ToolSet, bus: EventBus, run_d
             "(fees + spread + slippage). Stops are floored so the cost stays a "
             "small fraction of the risk unit; cost-in-R is shown per signal."
         )
+
+    # ---- Position sizing (item 30): recommended account risk, advice only ----
+    risk_pcts = {}
+    for s in signals:
+        risk = abs(s.entry - s.stop)
+        if s.entry and risk > 0:
+            risk_pcts[s.symbol] = risk / s.entry * 100.0
+    sizes = sizing_mod.size_signals(risk_pcts)
+    for s in signals:
+        sz = sizes.get(s.symbol)
+        if sz is not None:
+            s.sizing = SignalSizing(
+                risk_pct_account=sz.risk_pct_account,
+                notional_pct_account=sz.notional_pct_account,
+                weight=sz.weight, capped=sz.capped)
+    if sizes:
+        disclosures.append(
+            "Sizing model (advice only, never executed): inverse-volatility "
+            f"account risk {sizing_mod.MIN_RISK_PCT:g}-{sizing_mod.MAX_RISK_PCT:g}% "
+            f"per trade, cluster-capped at {sizing_mod.CLUSTER_CAP_RISK_PCT:g}% per "
+            "market — correlated positions are fewer independent bets, not ten."
+        )
+        if any(sz.capped for sz in sizes.values()):
+            total = sum(sz.risk_pct_account for sz in sizes.values())
+            disclosures.append(
+                f"Cluster cap applied: recommended risks summed past "
+                f"{sizing_mod.CLUSTER_CAP_RISK_PCT:g}% of account and were scaled "
+                f"down to {total:.2f}% total."
+            )
 
     # ---- Phase 8: critique & synthesis ----------------------------------------
     preset_name = profile.preset if profile.preset == "crypto" else scoring.FX_PRESET_NAME

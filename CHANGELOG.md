@@ -5,6 +5,14 @@ All notable changes to SignalDesk are documented here.
 ## [Unreleased]
 
 ### Added
+- **Recommended position sizing (roadmap item 30):** every signal in a scan
+  report now carries a sizing recommendation — inverse-volatility account
+  risk in the 0.5–1% band (median-volatility signal = 0.75%), a cluster cap
+  scaling the whole market's book down at 3% total account risk (correlated
+  crypto signals are ~1.4 independent bets, not ten), and the implied
+  notional so leverage is visible. Advice only: SignalDesk never places
+  orders, and the outcome accounting keeps measuring the plan's own R unit
+  (rule R7). Shown in the report's "Risk units & costs" table.
 - **Signal-quality package (pre-registered as trial T1):** the first real
   outcome sample (76 resolved, −0.35R expectancy, 0% TP1 hits, 20/20 losing
   market-order entries, 91 same-day duplicate bets) drove three changes,

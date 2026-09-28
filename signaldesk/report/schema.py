@@ -37,6 +37,17 @@ class EntryPlan(BaseModel):
     risk_floored: bool = False       # the risk floor widened the refined stop
 
 
+class SignalSizing(BaseModel):
+    """Recommended account-level sizing (item 30) — advice only, never executed.
+
+    Notional is derived from the recommended account risk divided by the
+    signal's own stop distance; the cluster cap may scale the whole book."""
+    risk_pct_account: float       # % of account risked to the stop
+    notional_pct_account: float   # approximate position notional, % of account
+    weight: float                 # share of this report's total recommended risk
+    capped: bool = False          # the cluster cap scaled this signal down
+
+
 class Signal(BaseModel):
     symbol: str
     direction: str = "LONG"
@@ -52,6 +63,7 @@ class Signal(BaseModel):
     entry_plan: EntryPlan | None = None  # Phase 7.5 intraday refinement
     cost_pct: float = 0.0                # assumed round-trip cost, % of notional
     cost_in_r: float = 0.0               # daily-plan cost-to-risk ratio
+    sizing: SignalSizing | None = None   # recommended account sizing (item 30)
 
 
 class AvoidEntry(BaseModel):

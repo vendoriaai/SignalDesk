@@ -114,7 +114,7 @@ durable rules beyond what the docs below state.
   pinned PYTHONPATH so a stale editable install can't break them; per-call
   timeouts, scan chart pass 180 s),
   `citations/`, `analysis/` (indicators + charts incl. entry-level charts),
-  `strategy/` (presets, trade plans, `MIN_RISK_ATR_MULT`/`MIN_RISK_COST_MULT`
+  `strategy/` (presets, trade plans, sizing (item 30: inverse-volatility account risk, cluster cap, advice-only), `MIN_RISK_ATR_MULT`/`MIN_RISK_COST_MULT`
   risk floor, Phase 7.5 ATR-only entry refinement),
   `workflows/` (market_scan, deep_dive, entry_refine), `report/`,
   `costs.py` (round-trip cost assumptions + cost-in-R + break-even win rate),
