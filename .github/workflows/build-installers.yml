@@ -54,7 +54,9 @@ jobs:
           "$BIN" version
           "$BIN" scan crypto --demo --universe-size 4 --json 2>/dev/null | grep -q '"market"'
       - uses: actions/upload-artifact@v4
-        with: { name: bundle-${{ matrix.p }}, path: dist/signaldesk/ }
+        with:
+          name: bundle-${{ matrix.p }}
+          path: dist/signaldesk/
 
   package:
     needs: bundle
@@ -65,7 +67,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
-        with: { name: bundle-${{ matrix.p }}, path: dist/signaldesk/ }
+        with:
+          name: bundle-${{ matrix.p }}
+          path: dist/signaldesk/
       - name: Windows NSIS installer
         if: matrix.p == 'windows'
         shell: pwsh
@@ -82,20 +86,30 @@ jobs:
         if: matrix.p == 'linux'
         run: |
           sudo apt-get update && sudo apt-get install -y wget
-          ln -sf signaldesk dist/signaldesk/AppRun
-          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
-          chmod +x linuxdeploy-x86_64.AppImage
-          ./linuxdeploy-x86_64.AppImage --appdir dist/signaldesk -o appimage
-          mv SignalDesk-*.AppImage "SignalDesk-${{ github.ref_name }}-linux-x86_64.AppImage" 2>/dev/null || true
-          # .deb
           VER="${{ github.ref_name }}"; VER="${VER#v}"
+          # AppImage: pack the onedir bundle as an AppDir with appimagetool —
+          # no relinking, so the PyInstaller layout stays intact. Runners have
+          # no FUSE, hence --appimage-extract-and-run.
+          APPDIR=dist/AppDir
+          mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/applications" \
+            "$APPDIR/usr/share/icons/hicolor/256x256/apps"
+          cp -r dist/signaldesk "$APPDIR/usr/bin/signaldesk"
+          printf '#!/bin/sh\nHERE="$(dirname "$(readlink -f "$0")")"\nexec "$HERE/usr/bin/signaldesk/signaldesk" "$@"\n' > "$APPDIR/AppRun"
+          chmod +x "$APPDIR/AppRun"
+          printf '[Desktop Entry]\nName=SignalDesk\nExec=signaldesk\nIcon=signaldesk\nType=Application\nCategories=Finance;\n' > "$APPDIR/usr/share/applications/signaldesk.desktop"
+          cp packaging/signaldesk-icon.png "$APPDIR/usr/share/icons/hicolor/256x256/apps/signaldesk.png"
+          cp packaging/signaldesk-icon.png "$APPDIR/.DirIcon"
+          wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool-x86_64.AppImage
+          ./appimagetool-x86_64.AppImage --appimage-extract-and-run "$APPDIR" "SignalDesk-$VER-linux-x86_64.AppImage"
+          rm -rf "$APPDIR"
+          # .deb: onedir bundle under /usr/local/bin/signaldesk
           PKG="dist/deb/signaldesk_${VER}_amd64"
           mkdir -p "$PKG/usr/local/bin" "$PKG/usr/share/applications" "$PKG/DEBIAN"
-          cp -r dist/signaldesk "$PKG/usr/local/bin/"
+          cp -r dist/signaldesk "$PKG/usr/local/bin/signaldesk"
           printf 'Package: signaldesk\nVersion: %s\nArchitecture: amd64\nMaintainer: SignalDesk contributors\nDescription: AI market research & signal agent (local-first, read-only)\n' "$VER" > "$PKG/DEBIAN/control"
           printf '[Desktop Entry]\nName=SignalDesk\nExec=/usr/local/bin/signaldesk/signaldesk desktop\nType=Application\nCategories=Finance;\n' > "$PKG/usr/share/applications/signaldesk.desktop"
-          dpkg-deb --build "$PKG"; mv "dist/deb/signaldesk_${VER}_amd64" . 2>/dev/null || true
-          cp "dist/deb/signaldesk_${VER}_amd64/DEBIAN/../.." -r . 2>/dev/null || true
+          dpkg-deb --build "$PKG"
       - uses: actions/upload-artifact@v4
         with:
           name: installer-${{ matrix.p }}
@@ -114,7 +128,8 @@ jobs:
       - uses: actions/download-artifact@v4
         with: { path: release-assets }
       - name: Create GitHub release
-        env: { GH_TOKEN: ${{ github.token }} }
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           cd release-assets && shopt -s globstar nullglob
           files=(installer-windows/*.exe installer-macos/*.dmg installer-linux/*.AppImage installer-linux/*.deb)

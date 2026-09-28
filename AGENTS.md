@@ -100,8 +100,9 @@ durable rules beyond what the docs below state.
   don't restyle one without the other
 - `mkdocs.yml` + `docs/` — docs site (quickstart, data sources, strategies, privacy)
 - `packaging/` — PyInstaller spec (`signaldesk.spec`, buildable: verified 104 MB Windows
-  bundle), NSIS script (`signaldesk.nsi`), and `make_logo.py` (regenerates
-  `logo.ico` from the svg brand geometry); installers are built per-OS by CI
+  bundle), NSIS script (`signaldesk.nsi`), `make_logo.py` (regenerates
+  `logo.ico` from the svg brand geometry), and `signaldesk-icon.png`
+  (256 px mark used by the Linux AppImage/.deb); installers are built per-OS by CI
 - `.github/workflows/build-installers.yml` — tag-triggered win/mac/linux build + release
 - `evals/cases.json` — 30-case planner/workflow corpus (runner: `signaldesk/evals/runner.py`)
 - `signaldesk/` — Python package: `markets.py`, `agent/` (events, planner),
