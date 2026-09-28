@@ -1,0 +1,124 @@
+# Release pipeline — triggered by `v*` tags (roadmap Phase 4.27).
+name: build-installers
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions: { contents: write }
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -e ".[dev,search]"
+      - run: pytest -q
+      - run: python -m signaldesk.evals.runner --json
+
+  ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - run: cd ui && npm install --no-audit --no-fund && npm run build
+      - uses: actions/upload-artifact@v4
+        with: { name: ui-dist, path: signaldesk/ui/dist }
+
+  bundle:
+    needs: [test, ui]
+    strategy:
+      matrix:
+        include:
+          - { os: windows-latest, p: windows }
+          - { os: macos-14,       p: macos }
+          - { os: ubuntu-latest,  p: linux }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: ui-dist, path: signaldesk/ui/dist }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -e . pyinstaller pywebview
+      - run: python -m PyInstaller packaging/signaldesk.spec --noconfirm
+      - name: Smoke run (crypto demo scan, offline)
+        shell: bash
+        run: |
+          BIN="dist/signaldesk/signaldesk"
+          [ "${{ matrix.p }}" = "windows" ] && BIN="${BIN}.exe"
+          "$BIN" version
+          "$BIN" scan crypto --demo --universe-size 4 --json 2>/dev/null | grep -q '"market"'
+      - uses: actions/upload-artifact@v4
+        with: { name: bundle-${{ matrix.p }}, path: dist/signaldesk/ }
+
+  package:
+    needs: bundle
+    strategy:
+      matrix: { p: [windows, macos, linux], include: [
+          { p: windows, os: windows-latest }, { p: macos, os: macos-14 }, { p: linux, os: ubuntu-latest } ] }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: bundle-${{ matrix.p }}, path: dist/signaldesk/ }
+      - name: Windows NSIS installer
+        if: matrix.p == 'windows'
+        shell: pwsh
+        run: |
+          choco install nsis -y --no-progress
+          $ver = "${{ github.ref_name }}".TrimStart("v"); makensis /DVERSION=$ver packaging/signaldesk.nsi
+          Move-Item "dist/SignalDesk-$ver-windows-amd64.exe" "SignalDesk-$ver-windows-amd64.exe"
+      - name: macOS dmg
+        if: matrix.p == 'macos'
+        run: |
+          hdiutil create -volname SignalDesk -srcfolder dist/signaldesk -ov -format UDZO \
+            "SignalDesk-${{ github.ref_name }}-macos-arm64.dmg"
+      - name: Linux AppImage + .deb
+        if: matrix.p == 'linux'
+        run: |
+          sudo apt-get update && sudo apt-get install -y wget
+          ln -sf signaldesk dist/signaldesk/AppRun
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          chmod +x linuxdeploy-x86_64.AppImage
+          ./linuxdeploy-x86_64.AppImage --appdir dist/signaldesk -o appimage
+          mv SignalDesk-*.AppImage "SignalDesk-${{ github.ref_name }}-linux-x86_64.AppImage" 2>/dev/null || true
+          # .deb
+          VER="${{ github.ref_name }}"; VER="${VER#v}"
+          PKG="dist/deb/signaldesk_${VER}_amd64"
+          mkdir -p "$PKG/usr/local/bin" "$PKG/usr/share/applications" "$PKG/DEBIAN"
+          cp -r dist/signaldesk "$PKG/usr/local/bin/"
+          printf 'Package: signaldesk\nVersion: %s\nArchitecture: amd64\nMaintainer: SignalDesk contributors\nDescription: AI market research & signal agent (local-first, read-only)\n' "$VER" > "$PKG/DEBIAN/control"
+          printf '[Desktop Entry]\nName=SignalDesk\nExec=/usr/local/bin/signaldesk/signaldesk desktop\nType=Application\nCategories=Finance;\n' > "$PKG/usr/share/applications/signaldesk.desktop"
+          dpkg-deb --build "$PKG"; mv "dist/deb/signaldesk_${VER}_amd64" . 2>/dev/null || true
+          cp "dist/deb/signaldesk_${VER}_amd64/DEBIAN/../.." -r . 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.p }}
+          path: |
+            SignalDesk-*.exe
+            SignalDesk-*.dmg
+            SignalDesk-*.AppImage
+            SignalDesk-*.deb
+            dist/deb/signaldesk_*_amd64.deb
+
+  release:
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { path: release-assets }
+      - name: Create GitHub release
+        env: { GH_TOKEN: ${{ github.token }} }
+        run: |
+          cd release-assets && shopt -s globstar nullglob
+          files=(installer-windows/*.exe installer-macos/*.dmg installer-linux/*.AppImage installer-linux/*.deb)
+          gh release create "${{ github.ref_name }}" "${files[@]}" \
+            --title "SignalDesk ${{ github.ref_name }}" \
+            --notes-file ../CHANGELOG.md || \
+          gh release upload "${{ github.ref_name }}" "${files[@]}"

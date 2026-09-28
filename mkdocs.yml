@@ -1,0 +1,15 @@
+site_name: SignalDesk docs
+site_description: Open-source AI market research & signal agent
+theme:
+  name: readthedocs
+  palette: slate
+nav:
+  - Home: index.md
+  - Data sources: data-sources.md
+  - Strategy authoring: strategies.md
+  - Privacy: privacy.md
+markdown_extensions:
+  - admonition
+  - tables
+  - pymdownx.superfences
+  - pymdownx.tabbed

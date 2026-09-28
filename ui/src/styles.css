@@ -1,0 +1,122 @@
+/* SignalDesk UI — compact dark theme */
+* { box-sizing: border-box; }
+body { margin: 0; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: #0d1117; color: #e6edf3; }
+.app { display: flex; height: 100vh; }
+.sidebar { width: 200px; background: #161b22; border-right: 1px solid #30363d; display: flex; flex-direction: column; padding: 16px 10px; }
+.brand { font-size: 18px; margin-bottom: 20px; }
+.sidebar nav { display: flex; flex-direction: column; gap: 4px; }
+.sidebar nav button { background: none; border: none; color: #8b949e; text-align: left; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+.sidebar nav button.active, .sidebar nav button:hover { background: #21262d; color: #e6edf3; }
+.sidebar-foot { margin-top: auto; font-size: 12px; color: #8b949e; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+.dot.on { background: #3fb950; } .dot.off { background: #6e7681; }
+.main { flex: 1; overflow-y: auto; padding: 20px 26px; }
+
+.prompt-bar { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; }
+.prompt-bar input { flex: 1; background: #0d1117; border: 1px solid #30363d; border-radius: 8px; color: #e6edf3; padding: 12px 14px; font-size: 15px; }
+.prompt-bar button { background: #238636; border: none; color: #fff; padding: 12px 22px; border-radius: 8px; cursor: pointer; font-weight: 600; }
+.demo-toggle { color: #8b949e; font-size: 13px; display: flex; gap: 6px; align-items: center; white-space: nowrap; }
+.plan-line { color: #a5d6ff; font-size: 13px; margin-bottom: 10px; font-family: ui-monospace, monospace; }
+.error { color: #f85149; margin-bottom: 10px; }
+.notice { background: #1c2128; border: 1px solid #444c56; border-radius: 6px; padding: 8px 12px; margin: 10px 0; font-size: 13px; }
+
+.trace h3, .history h3, .watchlists h3, .settings h3 { color: #8b949e; font-weight: 500; }
+.step { display: flex; align-items: baseline; gap: 8px; padding: 6px 10px; border-left: 2px solid #30363d; margin: 2px 0; cursor: pointer; font-size: 13px; }
+.step:hover { background: #161b22; }
+.step-phase { color: #8b949e; font-family: ui-monospace, monospace; min-width: 28px; }
+.step-warn { border-left-color: #d29922; }
+.step-result { border-left-color: #3fb950; }
+.step-sandbox { border-left-color: #a371f7; }
+.step-search { border-left-color: #58a6ff; }
+.step-tool { border-left-color: #39c5cf; }
+.chart-card { margin: 0; }
+.charts-grid h3 { color: #8b949e; font-weight: 500; margin-bottom: 10px; }
+.charts-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.chart-card img { width: 100%; border: 1px solid #30363d; border-radius: 8px; background: #0d1117; }
+.chart-card figcaption { font-size: 12px; color: #8b949e; text-align: center; padding-top: 4px; }
+.step-chart { border-left-color: #58a6ff; }
+
+.report { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 18px 24px; margin-top: 16px; line-height: 1.55; }
+.report table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.report th, .report td { border: 1px solid #30363d; padding: 6px 8px; text-align: left; }
+.report th { background: #0d1117; }
+.report h1 { font-size: 20px; } .report h2 { font-size: 16px; margin-top: 18px; }
+.report a { color: #58a6ff; }
+.report code { background: #0d1117; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+
+.history { display: flex; gap: 20px; height: 100%; }
+.history-list { width: 280px; overflow-y: auto; }
+.history-detail { flex: 1; overflow-y: auto; }
+.history-item { padding: 10px; border: 1px solid #30363d; border-radius: 8px; margin-bottom: 8px; cursor: pointer; }
+.history-item.active, .history-item:hover { background: #21262d; }
+.hi-title { font-size: 14px; } .hi-sub { font-size: 12px; color: #8b949e; margin-top: 3px; }
+.status-done { color: #3fb950; } .status-failed { color: #f85149; } .status-running { color: #d29922; }
+.muted { color: #8b949e; }
+
+.wl-form { display: flex; gap: 8px; margin-bottom: 14px; }
+.wl-form input, .settings input { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #e6edf3; padding: 8px 10px; }
+.wl-form .wl-syms { flex: 1; }
+.wl-form button, .settings button, .wl-scan { background: #1f6feb; border: none; color: #fff; border-radius: 6px; padding: 8px 14px; cursor: pointer; }
+.wl-card { border: 1px solid #30363d; border-radius: 8px; padding: 12px; margin-bottom: 10px; background: #161b22; }
+.wl-head { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
+.wl-head .wl-scan { margin-left: auto; font-size: 12px; padding: 5px 10px; }
+.chip { display: inline-block; background: #21262d; border: 1px solid #30363d; border-radius: 12px; padding: 3px 10px; margin: 2px; font-size: 12px; cursor: pointer; }
+
+.settings section { border: 1px solid #30363d; border-radius: 10px; padding: 14px 18px; margin-bottom: 16px; background: #161b22; max-width: 720px; }
+.secret-row { display: grid; grid-template-columns: 160px 90px 1fr; gap: 10px; align-items: center; margin: 6px 0; }
+.toggle-row { display: flex; gap: 8px; align-items: center; }
+.auth-row { display: flex; gap: 8px; margin: 6px 0; }
+.danger { background: #da3633 !important; margin-top: 10px; }
+
+/* onboarding wizard (first run) */
+.onboarding { display: flex; align-items: center; justify-content: center; height: 100vh; background: #0d1117; }
+.onboard-card { width: 520px; max-width: calc(100vw - 40px); background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 28px 32px; }
+.onboard-card h2 { margin-top: 0; }
+.onboard-card label { display: block; margin: 10px 0; }
+.onboard-card input[type="password"], .onboard-card input[type="text"], .onboard-card input:not([type]) { width: 100%; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #e6edf3; padding: 9px 12px; margin: 4px 0; }
+.steps { color: #8b949e; font-size: 12px; margin-bottom: 12px; }
+.wizard-btns { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
+.wizard-btns button { background: #238636; border: none; color: #fff; border-radius: 6px; padding: 9px 18px; cursor: pointer; }
+.wizard-btns button:first-child { background: #30363d; }
+
+.update-banner { background: #1f6feb; color: #fff; border-radius: 8px; padding: 8px 14px; margin-bottom: 14px; font-size: 13px; }
+.update-banner a { color: #fff; text-decoration: underline; }
+
+.step-data { flex-basis: 100%; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 8px; font-size: 11px; overflow-x: auto; }
+
+/* ---- responsive: narrow windows ------------------------------------------ */
+
+/* mid-width: history detail gets room; tables scroll horizontally instead of crushing */
+@media (max-width: 980px) {
+  .main { padding: 14px 16px; }
+  .history { flex-direction: column; }
+  .history-list { width: 100%; flex: none; max-height: 190px; overflow-y: auto;
+                  display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+  .history-list h3 { grid-column: 1 / -1; margin: 0 0 2px; }
+  .history-item { margin-bottom: 0; }
+  .history-detail { overflow-y: visible; }
+  .report { padding: 14px 14px; overflow-x: hidden; }
+  .report table { display: block; overflow-x: auto; font-size: 12px; }
+  .report th, .report td { padding: 4px 6px; }
+  .report td:nth-last-child(-n+2) { min-width: 220px; white-space: normal; }
+  .charts-row { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+  .prompt-bar { flex-wrap: wrap; }
+  .prompt-bar input { flex: 1 1 200px; min-width: 0; }
+  .secret-row { grid-template-columns: 120px 70px 1fr; }
+}
+
+/* small width/height: sidebar becomes a top bar, everything stacks */
+@media (max-width: 720px) {
+  .app { flex-direction: column; }
+  .sidebar { width: 100%; flex-direction: row; align-items: center; padding: 8px 12px;
+             border-right: none; border-bottom: 1px solid #30363d; gap: 8px; }
+  .brand { font-size: 16px; margin-bottom: 0; margin-right: 6px; white-space: nowrap; }
+  .sidebar nav { flex-direction: row; gap: 2px; flex-wrap: wrap; }
+  .sidebar nav button { padding: 6px 8px; font-size: 13px; }
+  .sidebar-foot { display: none; }
+  .main { padding: 10px 10px 20px; }
+  .charts-row { grid-template-columns: 1fr; }
+  .secret-row { grid-template-columns: 1fr; gap: 4px; }
+  .auth-row { flex-wrap: wrap; }
+  .settings section { padding: 12px 12px; }
+}
