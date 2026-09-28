@@ -19,7 +19,7 @@ This document defines the agent's executable workflows step-by-step, derived fro
    - "{market} market news today {date}"
    - "{dominant asset} price surge today / why is {asset} up today"
    - "{market} market outlook this week"
-4. Read top pages; extract dated claims into `context_claims[]` (each with source URL/title — these become web citations).
+4. Read the top hit: its article's opening text is fetched (Tavily extract when a key is set, else a direct page fetch with a 45 s total budget; demo scans skip this) and the claim quotes the article; the search snippet is the fallback. Claims go into `context_claims[]` with source URL — these become web citations.
 *Failure:* search provider down → fallback provider; all fail → report notes "news context unavailable".
 
 ### Phase 2 — Universe Construction
@@ -54,7 +54,7 @@ This document defines the agent's executable workflows step-by-step, derived fro
 
 ### Phase 6 — Per-Candidate Catalyst Research (web)
 13. For the top ~5 technical candidates, batched queries: "{name} price surge news catalyst", "{name} news {month year}", plus sector flows ("spot bitcoin ETF flows this week").
-14. Extract catalyst claims per asset → `catalysts[symbol][]` citations.  *(Reference: SUI institutional staking/CME futures; TAO AI-narrative; AAVE RWA/news; ETF inflow headlines.)*
+14. Extract catalyst claims per asset → `catalysts[symbol][]` citations: the first hit's article text is fetched (same mechanism/budget as Phase 1; snippet stays the fallback), cited as `column="extracted_text"` when the page was read.  *(Reference: SUI institutional staking/CME futures; TAO AI-narrative; AAVE RWA/news; ETF inflow headlines.)*
 
 ### Phase 7 — Scoring & Signal Construction
 15. Score each symbol via `strategy/scoring.py` (versioned preset `trend-momentum-v1`):

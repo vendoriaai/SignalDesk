@@ -56,32 +56,60 @@ class FearGreedTool(Tool):
 
 
 class AltSeasonTool(Tool):
+    """Altcoin Season Index, computed CoinGecko-native.
+
+    blockchaincenter's API endpoint is gone (404 since 2026-09), so the
+    index is rebuilt from its original definition: the share of the top-50
+    coins that outperformed BTC over the last 30 days. Same one-call
+    CoinGecko endpoint the movers tool already uses.
+    """
+
     name = "altcoin_season"
-    description = "Altcoin Season Index (blockchaincenter)."
+    description = "Altcoin Season Index: % of top-50 alts outperforming BTC over 30d."
 
     def __init__(self, artifacts_dir: Path):
         self.artifacts_dir = Path(artifacts_dir)
         self.artifacts_dir.mkdir(parents=True, exist_ok=True)
-        self._bucket = TokenBucket(rate_per_sec=0.3, capacity=1)
+        self._bucket = TokenBucket(rate_per_sec=0.5, capacity=2)
 
     def run(self) -> ToolResult:
         self._bucket.acquire()
         try:
             resp = httpx.get(
-                "https://www.blockchaincenter.net/api/altcoin-season-index.json",
-                timeout=15.0,
-                follow_redirects=True,
+                "https://api.coingecko.com/api/v3/coins/markets",
+                params={
+                    "vs_currency": "usd",
+                    "order": "market_cap_desc",
+                    "per_page": 50,
+                    "page": 1,
+                    "price_change_percentage": "30d",
+                },
+                timeout=20.0,
             )
             resp.raise_for_status()
-            value = float(resp.json()["value"] if isinstance(resp.json(), dict) else resp.json())
+            rows = resp.json()
         except Exception as exc:
             return ToolResult(summary=f"altcoin season index unavailable: {exc}", degraded=True)
+
+        btc = next((r for r in rows if r.get("id") == "bitcoin"), None)
+        btc_chg = btc.get("price_change_percentage_30d_in_currency") if btc else None
+        if btc_chg is None:
+            return ToolResult(summary="altcoin season index unavailable: no BTC 30d baseline",
+                              degraded=True)
+        alts = [float(r["price_change_percentage_30d_in_currency"]) for r in rows
+                if r.get("id") != "bitcoin"
+                and r.get("price_change_percentage_30d_in_currency") is not None]
+        if not alts:
+            return ToolResult(summary="altcoin season index unavailable: no alt 30d data",
+                              degraded=True)
+        value = round(sum(1 for chg in alts if chg > float(btc_chg)) / len(alts) * 100.0, 1)
         regime = "altcoin season" if value >= 75 else ("bitcoin season" if value <= 25 else "mixed")
         frame = pd.DataFrame([{"index": "altcoin_season", "value": value, "regime": regime}])
         path = self.artifacts_dir / "altcoin_season.csv"
         frame.to_csv(path, index=False)
         return ToolResult(
             csv_files=[path],
-            summary=f"Altcoin Season Index: {value} ({regime})",
-            sources=[Source(name="blockchaincenter", url="https://www.blockchaincenter.net/altcoin-season-index/", retrieved_at=_now())],
+            summary=f"Altcoin Season Index: {value} ({regime}) — {len(alts)} alts vs BTC 30d",
+            sources=[Source(name="coingecko", url="https://api.coingecko.com/api/v3/coins/markets",
+                            retrieved_at=_now())],
         )

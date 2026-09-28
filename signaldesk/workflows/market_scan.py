@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import math
 import shutil
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -35,6 +36,7 @@ from signaldesk.report.schema import (
 from signaldesk.sandbox.executor import run_script
 from signaldesk.strategy import scoring
 from signaldesk.strategy import sizing as sizing_mod
+from signaldesk.tools import extract as extract_mod
 
 _SANDBOX_SCRIPT = """\
 import json
@@ -137,6 +139,20 @@ def run_market_scan(req: MarketScanRequest, tools: ToolSet, bus: EventBus, run_d
 
     # ---- Phase 1: market context research ----------------------------------
     context_claims: list[NewsClaim] = []
+    # News depth (item: read the news): the top hit's article text is fetched
+    # so claims quote the page itself; snippets remain the fallback (R4).
+    # Skipped for demo scans (offline, deterministic) and time-budgeted.
+    tavily_key = getattr(tools.search, "tavily_api_key", None)
+    extract_deadline = time.monotonic() + 45.0
+
+    def _read_article(url: str) -> str:
+        if demo_mode or not url or time.monotonic() > extract_deadline:
+            return ""
+        try:
+            return extract_mod.extract_article(url, tavily_api_key=tavily_key)
+        except Exception:
+            return ""
+
     if tools.search.available():
         dominant = {"crypto": "bitcoin", "forex": "US dollar", "metals": "gold"}.get(market, market)
         queries = [
@@ -148,7 +164,14 @@ def run_market_scan(req: MarketScanRequest, tools: ToolSet, bus: EventBus, run_d
             bus.emit("P1", EventKind.SEARCH, q, hits=len(hits))
             if hits:
                 h = hits[0]
-                context_claims.append(NewsClaim(claim=h.snippet or h.title, url=h.url, published=h.published))
+                claim = _read_article(h.url) or h.snippet or h.title
+                context_claims.append(NewsClaim(claim=claim, url=h.url, published=h.published))
+        if not demo_mode:
+            disclosures.append(
+                "News depth: context/catalyst lines quote the linked article's "
+                "opening text where the page was fetchable, otherwise the "
+                "search snippet is used."
+            )
     else:
         disclosures.append("News context unavailable (configure a search provider); scan is TA/sentiment only.")
         bus.emit("P1", EventKind.WARN, "search provider unavailable")
@@ -383,10 +406,13 @@ def run_market_scan(req: MarketScanRequest, tools: ToolSet, bus: EventBus, run_d
             for q, hits in tools.search.batch(queries, max_results=2).items():
                 bus.emit("P6", EventKind.SEARCH, q, hits=len(hits))
                 for h in hits[:1]:
-                    claim = h.snippet or h.title
+                    extracted = _read_article(h.url)
+                    claim = extracted or (h.snippet or h.title)[:240]
                     cite = registry.register_direct(
-                        claim[:240], f"{sym} catalyst",
-                        source_tool="web_search", column="snippet", row_key=h.url[:120],
+                        claim, f"{sym} catalyst",
+                        source_tool="web_search",
+                        column="extracted_text" if extracted else "snippet",
+                        row_key=h.url[:120],
                     )
                     catalysts[sym].append(f"{claim} [{cite.id}]")
 

@@ -106,7 +106,9 @@ durable rules beyond what the docs below state.
 - `.github/workflows/build-installers.yml` — tag-triggered win/mac/linux build + release
 - `evals/cases.json` — 30-case planner/workflow corpus (runner: `signaldesk/evals/runner.py`)
 - `signaldesk/` — Python package: `markets.py`, `agent/` (events, planner),
-  `tools/` (read-only adapters; `yfinance_tools.py` normalizes empty/odd Yahoo
+  `tools/` (read-only adapters; `extract.py` fetches an article's opening text
+  for news claims (Tavily extract, direct-fetch fallback, snippet fallback;
+  demo scans skip it); `yfinance_tools.py` normalizes empty/odd Yahoo
   frames and retries with backoff + a 20 s download timeout before dropping
   the symbol),
   `sandbox/` (matplotlib allowed in whitelist; frozen builds spawn

@@ -124,14 +124,18 @@ to `~/.signaldesk/signaldesk.db` (SQLite).
 
 ## How a signal is produced
 
-1. **News context** (web search, before any numbers — rule R2)
+1. **News context** (web search, before any numbers — rule R2): the top
+   hit's article text is fetched where possible (snippet as fallback), so
+   context lines quote the page itself
 2. **Universe**: majors + top gainers/losers, capped (default 12 symbols)
 3. **Data pull**: quotes snapshot + ~6 months daily OHLCV per symbol
 4. **Sandbox compute**: RSI, SMA/EMA stack, MACD + histogram, ATR, annualized
    volatility, 3/7/30d returns, 20d swing high/low — in a sub-process with an
    import whitelist and a 60 s timeout
-5. **Sentiment**: Fear & Greed, Altcoin Season
-6. **Catalysts**: per-candidate news research for the top scorers
+5. **Sentiment**: Fear & Greed; Altcoin Season computed CoinGecko-native
+   (share of the top-50 alts outperforming BTC over 30d)
+6. **Catalysts**: per-candidate news research for the top scorers, quoting
+   the linked article's opening text where the page was fetchable
 7. **Scoring** (`trend-momentum-v1`): trend 40% · momentum 25% · RSI regime
    15% · volume 10% · sentiment 10%. LONG-only, RSI ≥ 75 excluded, extreme
    greed caps at HOLD. Stop = closest of entry − 1.5×ATR / 20d swing low,

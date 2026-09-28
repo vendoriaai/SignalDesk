@@ -11,7 +11,7 @@ in the report header instead of failing the run (rule R4).
 | yfinance | Quotes + OHLCV (stocks, crypto, FX `=X`, metals `GC=F`/`SI=F`) | One batched daily download per scan; intraday entry windows 30m→30d, 15m→14d, 5m→5d, 1m→2d (yfinance caps: ≤60d for 5m–30m, ≤7d for 1m) |
 | CoinGecko | Crypto gainers/losers (universe discovery) | `coins/markets` endpoint |
 | alternative.me | Crypto Fear & Greed Index | `/fng/` |
-| blockchaincenter | Altcoin Season Index | Scraper feed; unstable → disclosed when down |
+| CoinGecko (alt-season) | Altcoin Season Index | Computed natively: share of the top-50 coins outperforming BTC over 30d (blockchaincenter's API is gone); disclosed when the fetch fails |
 | SEC EDGAR | Annual revenue / net income (deep dives) | Declared User-Agent, rate-limited |
 | DuckDuckGo | Web/news search fallback | needs `pip install "signaldesk[search]"` |
 

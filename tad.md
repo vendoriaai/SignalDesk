@@ -199,7 +199,7 @@ signaldesk/
   __init__.py  config.py  cli.py  api.py  desktop.py  updates.py
   agent/                # planner + events
   tools/                # read-only adapters (yfinance, coingecko, alphavantage,
-                        #   macro, sentiment, equities, search, demo, demo_equities)
+                        #   macro, sentiment, equities, search, extract, demo, demo_equities)
   sandbox/executor.py   # restricted subprocess
   citations/            # direct + derived provenance
   analysis/             # indicators.py, charts.py

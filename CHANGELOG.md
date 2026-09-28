@@ -5,6 +5,19 @@ All notable changes to SignalDesk are documented here.
 ## [Unreleased]
 
 ### Added
+- **News depth — the scan now reads the news instead of just finding it:**
+  context and catalyst lines quote the linked article's own opening text
+  (Tavily extract when a Tavily key is configured, otherwise a direct page
+  fetch with a stdlib HTML stripper and a 45 s per-scan budget). The search
+  snippet remains the fallback when a page can't be fetched, and demo scans
+  stay offline. Article text is cited with its URL
+  (`column="extracted_text"`).
+- **Altcoin Season Index rebuilt (blockchaincenter's API is gone, 404):**
+  now computed CoinGecko-native from the index's original definition — the
+  share of the top-50 coins outperforming BTC over the last 30 days — using
+  the same one-call endpoint the movers tool already uses. Same CSV
+  contract (`index/value/regime`); degrades with disclosure when the fetch
+  fails.
 - **Recommended position sizing (roadmap item 30):** every signal in a scan
   report now carries a sizing recommendation — inverse-volatility account
   risk in the 0.5–1% band (median-volatility signal = 0.75%), a cluster cap
