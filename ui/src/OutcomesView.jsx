@@ -212,7 +212,9 @@ export default function OutcomesView() {
                           </span>
                         );
                       }
-                      return s.r_net == null ? "—" : fmtR(s.r_net);
+                      return s.r_net == null ? "—" : (
+                        <span className={s.r_net >= 0 ? "mtm-pos" : "mtm-neg"}>{fmtR(s.r_net)}</span>
+                      );
                     })()}
                   </td>
                   <td>

@@ -128,6 +128,9 @@ All notable changes to SignalDesk are documented here.
 - Deep dives get the same cost floor, cost citations and ledger recording.
 
 ### Fixed
+- The `r_net` column in the Outcomes signals table is now sign-colored like
+  the live column: green (`#3fb950`) for `>= 0`, red (`#f85149`) for negative
+  — resolved values rendered as plain text before.
 - Sandbox `ModuleNotFoundError: No module named 'signaldesk'`: the server
   imported the package via cwd shadowing, but sandbox children run from the
   run directory and relied on site-packages — where a stale editable install
