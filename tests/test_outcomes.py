@@ -136,3 +136,68 @@ def test_resolve_records_fetches_bars_once_per_symbol():
     out = outcomes.resolve_records(recs, provider)
     assert [r.status for r in out] == ["tp2", "tp2", "tp2"]
     assert calls == ["BTCUSD", "ETHUSD"]
+
+
+# --- SHORT side: mirrored barriers (same conventions, opposite direction) --------
+
+def _short_record(**over) -> ledger.LedgerRecord:
+    base = dict(direction="SHORT", entry=100.0, stop=105.0, tp1=90.0, tp2=85.0)
+    base.update(over)
+    return _record(**base)
+
+
+def test_short_tp2_hit_and_declared_policy_r():
+    bars = _bars([DECISION_BAR, (100.0, 101.0, 84.0, 86.0)])   # low 84 <= tp2 85
+    res = outcomes.resolve(_short_record(), bars)
+    assert res.direction == "SHORT"
+    assert res.status == "tp2"
+    assert res.bars == 1 and res.bars_to_tp1 == 1 and res.bars_to_tp2 == 1
+    assert res.exit_price == 85.0
+    assert res.r_gross == pytest.approx(2.5)
+    assert res.r_all_in == pytest.approx(2.0)
+    assert res.r_runner == pytest.approx(3.0)
+    assert res.r_net == pytest.approx(2.45)
+    assert res.mfe_r == pytest.approx(3.2)        # low 84: (100-84)/5
+    assert res.mae_r == pytest.approx(-0.2)       # high 101: (100-101)/5
+
+
+def test_short_stop_loss_on_high():
+    bars = _bars([DECISION_BAR, (100.0, 106.0, 99.0, 101.0)])  # high 106 >= stop 105
+    res = outcomes.resolve(_short_record(), bars)
+    assert res.status == "sl"
+    assert res.exit_price == 105.0
+    assert res.r_gross == pytest.approx(-1.0)
+    assert res.r_net == pytest.approx(-1.05)
+
+
+def test_short_same_bar_tie_stop_wins():
+    bars = _bars([DECISION_BAR, (100.0, 105.5, 84.0, 100.0)])  # stop and tp1 in one bar
+    res = outcomes.resolve(_short_record(), bars)
+    assert res.status == "sl"
+    assert res.bars_to_tp1 is None
+
+
+def test_short_tp1_then_stop_pays_half_position():
+    bars = _bars([DECISION_BAR, (100.0, 101.0, 89.0, 95.0),    # low 89 <= tp1 90
+                  (95.0, 106.0, 94.0, 95.0)])                  # high 106 >= stop
+    res = outcomes.resolve(_short_record(), bars)
+    assert res.status == "tp1"
+    assert res.bars_to_tp1 == 1 and res.bars_to_tp2 is None
+    assert res.r_gross == pytest.approx(0.5)
+    assert res.r_runner == pytest.approx(-1.0)
+
+
+def test_short_time_barrier_marks_to_market():
+    bars = _bars([DECISION_BAR, (100.0, 101.0, 99.0, 101.0), (101.0, 103.0, 100.0, 102.0)])
+    res = outcomes.resolve(_short_record(), bars, horizon_bars=2)
+    assert res.status == "time"
+    assert res.exit_price == 102.0
+    assert res.r_gross == pytest.approx(-0.4)     # (100 - 102)/5
+    assert res.r_net == pytest.approx(-0.45)
+
+
+def test_short_risk_falls_back_to_abs_entry_stop():
+    rec = _short_record(risk=0.0)
+    bars = _bars([DECISION_BAR, (100.0, 106.0, 99.0, 101.0)])
+    res = outcomes.resolve(rec, bars)
+    assert res.status == "sl"                     # risk = |100 - 105| = 5 resolves fine

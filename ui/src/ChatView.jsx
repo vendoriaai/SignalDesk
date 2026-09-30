@@ -98,7 +98,7 @@ export default function ChatView() {
         <div className="trace">
           <h3>Execution trace</h3>
           {events.map((ev, i) => (
-            <StepCard key={i} event={ev} />
+            <StepCard key={i} event={ev} runId={runId} />
           ))}
         </div>
       )}

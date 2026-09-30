@@ -96,7 +96,7 @@ Vite + React (or Vue): Chat view with streaming step cards (Search / Tool call /
 ### 3.7 `packaging/`
 GitHub Actions matrix (windows-latest, macos-14, ubuntu-latest): pip → PyInstaller spec → installer build → artifact publish to GitHub Releases. Auto-update via a tiny update-manifest check (TUF-style; v1 can ship manual download).
 
-### 3.8 Measurement layer — `costs.py` · `ledger.py` · `outcomes.py` · `metrics.py` · `resolver.py` · `scheduler.py` · `paper.py` · `mtm.py` · `universe.py` · `trials.py`
+### 3.8 Measurement layer — `costs.py` · `ledger.py` · `outcomes.py` · `metrics.py` · `resolver.py` · `scheduler.py` · `paper.py` · `mtm.py` · `universe.py` · `trials.py` · `learn.py`
 Deliberately framework-free (no backtesting engine): signals are discrete
 records with levels, so the honest evaluation is a resolver over OHLCV
 artifacts, not a position-accounting engine.
@@ -150,6 +150,18 @@ artifacts, not a position-accounting engine.
   sample) with close-out; surfaced by `signaldesk trial add|list|close`.
   Criteria freeze at declaration time and outcomes are judged on the outcome
   layer only (R7).
+- `learn.py` — meta-label learning layer (item 38), shadow mode: joins ledger
+  records with their latest resolutions into a training set (demo/open/no-data
+  rows excluded), fits an L2 logistic model in numpy (no new dependency) on
+  decision-time features, and evaluates walk-forward only (expanding window;
+  imputation medians and standardization recomputed per window so nothing
+  leaks). Persists a fingerprinted `learn_model.json`; the market scan stamps
+  `ml_score`/`ml_fingerprint` on new ledger records (`apply_shadow_scores`)
+  and the score acts on nothing — gating or sizing by score requires a
+  pre-registered trial that closed positive (R7/R6). A missing/unreadable
+  model degrades to "no score" (R4). Labels are read exactly as resolved —
+  nothing here re-derives or re-labels an outcome (same contract as the
+  resolver).
 - `universe.py` — universe integrity (item 29): the liquidity screen applied
   to WF Phase 2 movers picks (declared per-market floors, cited as
   `source_tool="liquidity_screen"`; a missing tape keeps the name) and the
@@ -197,19 +209,25 @@ User prompt → **planner** builds plan → **researcher** runs batched news que
 ```
 signaldesk/
   __init__.py  config.py  cli.py  api.py  desktop.py  updates.py
-  agent/                # planner + events
+  agent/                # planner + events + vision.py (AI chart read 7.6, signal generation 6.5)
   tools/                # read-only adapters (yfinance, coingecko, alphavantage,
                         #   macro, sentiment, equities, search, extract, demo, demo_equities)
   sandbox/executor.py   # restricted subprocess
   citations/            # direct + derived provenance
   analysis/             # indicators.py, charts.py
-  strategy/scoring.py   # presets, trade plans, risk floor, entry refinement, regime gates (item 32)
+  strategy/scoring.py   # long + mirrored short presets, trade plans, risk floor,
+                        #   entry refinement (long-only), reconcile_ai_entry (7.6),
+                        #   regime gates (item 32 + short mirror)
   strategy/sizing.py    # recommended account sizing (item 30): inverse-vol + cluster cap
-  workflows/            # market_scan.py (WF-1/3/4), deep_dive.py (WF-2), entry_refine.py
+  workflows/            # market_scan.py (WF-1/3/4, dual-direction), deep_dive.py (WF-2),
+                        #   entry_refine.py (Phase 7.5 + 7.6 AI chart read),
+                        #   ai_generate.py (Phase 6.5: the vision LLM generates the signals)
   report/               # schema.py, render.py
-  costs.py  ledger.py  outcomes.py  metrics.py   # measurement layer (TAD 3.8)
+  costs.py  ledger.py  outcomes.py  metrics.py   # measurement layer (TAD 3.8); direction-aware
   resolver.py scheduler.py paper.py              # WF-5: pipeline, daily loop, paper log
   universe.py                                    # liquidity screen + survivorship audit (item 29)
+  trials.py                                      # pre-registered rule changes (item 33)
+  learn.py                                       # meta-label shadow model (item 38)
   markets.py  watchlists.py  store.py  userconfig.py  sync.py
   ui/                   # React app (dist/ served by api.py)
   evals/                # planner/workflow corpus runner

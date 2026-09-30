@@ -15,6 +15,10 @@ fixed in advance so a result cannot be re-labelled after the fact:
   is that they cost expectancy while flattering the win rate). The raw variants
   (`r_all_in`, `r_runner`) are stored so other policies can be re-scored later.
 - Net R subtracts the record's cost-in-R once (a round trip).
+- Direction comes from the ledger record (`direction`: LONG default, SHORT for
+  the mirrored short book). SHORT barriers are the exact mirror: the stop is
+  touched from above (`high >= stop`), targets from below (`low <= tp`), and
+  the same pessimistic tie rule applies — the stop wins any same-bar tie.
 - The time barrier marks to market rather than dropping the trade: censored
   signals are the marginal cases that decide whether an edge is real.
 """
@@ -41,6 +45,7 @@ class Resolution:
     signal_id: str
     symbol: str
     market: str = ""
+    direction: str = "LONG"       # LONG | SHORT (from the ledger record)
     status: str = "open"          # tp2 | tp1 | sl | time | open | no_data
     bars: int = 0
     bars_to_tp1: int | None = None
@@ -78,9 +83,12 @@ def _round(x: float) -> float:
 
 def resolve(record, bars: pd.DataFrame, *, horizon_bars: int = RESOLVE_HORIZON_BARS) -> Resolution:
     """Resolve one ledger record against `bars` (date/open/high/low/close, ascending)."""
+    direction = str(getattr(record, "direction", "LONG") or "LONG").upper()
+    is_short = direction == "SHORT"
     out = Resolution(
         signal_id=record.signal_id, symbol=record.symbol,
         market=getattr(record, "market", ""),
+        direction=direction,
         cost_in_r=float(getattr(record, "cost_in_r", 0.0) or 0.0),
         risk_pct=float(getattr(record, "risk_pct", 0.0) or 0.0),
         horizon_bars=horizon_bars,
@@ -88,7 +96,7 @@ def resolve(record, bars: pd.DataFrame, *, horizon_bars: int = RESOLVE_HORIZON_B
     )
     entry = float(record.entry)
     stop = float(record.stop)
-    risk = float(getattr(record, "risk", 0.0) or 0.0) or (entry - stop)
+    risk = float(getattr(record, "risk", 0.0) or 0.0) or abs(entry - stop)
     if bars is None or bars.empty or risk <= 0:
         out.status = "no_data"
         return out
@@ -112,17 +120,25 @@ def resolve(record, bars: pd.DataFrame, *, horizon_bars: int = RESOLVE_HORIZON_B
     for i, bar in enumerate(window.itertuples(), start=1):
         high, low = float(bar.high), float(bar.low)
         bars_used = i
-        if low <= stop:  # pessimistic: stop wins any same-bar tie
+        if is_short:
+            stop_hit = high >= stop          # pessimistic: stop wins any same-bar tie
+            tp2_hit = low <= tp2
+            tp1_now = low <= tp1
+        else:
+            stop_hit = low <= stop
+            tp2_hit = high >= tp2
+            tp1_now = high >= tp1
+        if stop_hit:
             status = "tp1" if tp1_hit else "sl"
             exit_price = stop
             break
-        if high >= tp2:
+        if tp2_hit:
             if not tp1_hit:
                 tp1_hit, out.bars_to_tp1 = True, i
             out.bars_to_tp2 = i
             status, exit_price = "tp2", tp2
             break
-        if high >= tp1 and not tp1_hit:
+        if tp1_now and not tp1_hit:
             tp1_hit, out.bars_to_tp1 = True, i
 
     if status == "open":  # nothing resolved inside the horizon -> time barrier
@@ -133,11 +149,16 @@ def resolve(record, bars: pd.DataFrame, *, horizon_bars: int = RESOLVE_HORIZON_B
     out.status = status
     out.bars = bars_used
     out.exit_price = _round(exit_price)
-    out.mfe_r = _round((float(used["high"].max()) - entry) / risk)
-    out.mae_r = _round((float(used["low"].min()) - entry) / risk)
+    hi, lo = float(used["high"].max()), float(used["low"].min())
+    if is_short:  # favourable = price falling; adverse = price rising
+        out.mfe_r = _round((entry - lo) / risk)
+        out.mae_r = _round((entry - hi) / risk)
+    else:
+        out.mfe_r = _round((hi - entry) / risk)
+        out.mae_r = _round((lo - entry) / risk)
     out.bars_last = str(used.iloc[-1]["date"])
 
-    runner_r = (exit_price - entry) / risk
+    runner_r = (entry - exit_price) / risk if is_short else (exit_price - entry) / risk
     out.r_runner = _round(runner_r)
     if status == "sl":
         out.r_all_in = _round(-1.0)

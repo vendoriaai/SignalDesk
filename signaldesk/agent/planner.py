@@ -177,12 +177,25 @@ _LLM_MODELS = {"openai": "gpt-4o-mini",
                "openrouter": "openrouter/openai/gpt-4o-mini"}
 
 
+def normalize_model_id(provider: str, model: str | None) -> str:
+    """Full LiteLLM model id; per-provider default when no override is set.
+
+    OpenRouter ids must carry the `openrouter/` prefix or LiteLLM routes them
+    to the native vendor (a Settings value like "deepseek/deepseek-v4.1-flash"
+    would hit DeepSeek's API with an OpenRouter key and fail auth). Bare
+    vendor ids from Settings/"llm_model" are normalized here."""
+    model = model or _LLM_MODELS.get(provider, "")
+    if provider == "openrouter" and model and not model.startswith("openrouter/"):
+        model = f"openrouter/{model}"
+    return model
+
+
 def _classify_llm(prompt: str, creds: tuple[str, str], model: str | None = None) -> Plan | None:
     provider, key = creds
     try:
         import litellm
 
-        model_id = model or _LLM_MODELS.get(provider)
+        model_id = normalize_model_id(provider, model)
         if model_id is None:
             return None
         resp = litellm.completion(

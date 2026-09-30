@@ -13,9 +13,9 @@ Presets are plain Python — fork them, tune weights, compare results.
 | Volume | 10% | volume ≥ 30-day average |
 | Sentiment | 10% | Fear & Greed neutral → +5, greed → +10; ≥80 caps everything at HOLD |
 
-Signal construction (score ≥ 60, LONG-only):
+Signal construction (score ≥ 60, emitted per side — see the short mirror below):
 `stop = closest of (entry − 1.5×ATR, 20d swing low)` · `TP1 = entry + 2R` ·
-`TP2 = entry + 3R` · RSI ≥ 75 is never signaled (overextended rule R3).
+`TP2 = entry + 3R` · RSI ≥ 75 is never signaled LONG (overextended rule R3).
 
 The stop is then widened if needed to the **cost-aware risk floor** (rule R6):
 `R ≥ max(0.75×ATR(1d), 15× the symbol's assumed round-trip cost)`. The assumed
@@ -26,6 +26,20 @@ and `floored` plans say so in their confluence notes. Rationale: a stop tighter
 than the floor makes cost a large fraction of R — at 0.5R of cost a 2R target
 needs a 66% win rate to break even.
 
+## Built-in: `trend-momentum-short-v1` (the short mirror)
+
+The same weights score the bearish case: below SMA20/SMA50, EMA9 < EMA21, MACD
+histogram negative and falling, RSI 30–50 full (25–30 / 50–55 half), Fear &
+Greed fear side adds up to +10 and ≤20 caps shorts at HOLD. Plans mirror:
+`stop = closest of (entry + 1.5×ATR, 20d swing high)` · `TP1 = entry − 2R` ·
+`TP2 = entry − 3R`. RSI ≤ 25 (falling knife) is never signaled SHORT — the R3
+mirror — and the regime gates mirror too: shorts are refused above the 200d
+SMA, into a falling-knife 7d move (< −50%), extended more than 25% below SMA20,
+at the same 150% volatility extreme, and BTC above its own 200d SMA caps the
+whole crypto short book. Each scan scores both sides and emits the better
+eligible side, one signal per symbol; refused sides land in the avoid list
+cited (`LONG refused: …` / `SHORT refused: …`).
+
 ## Built-in: `fx-momentum-v1` (forex / metals)
 
 Same trend/momentum/RSI skeleton, no volume (spot FX), and a 20% macro
@@ -35,9 +49,11 @@ metals like falling yields.
 
 ## Intraday entry refinement (Phase 7.5)
 
-After a preset ranks candidates, the **final top signals** are re-checked on
-intraday bars (default 30m/15m/5m/1m) to refine the entry — the ranking and
-weights above are unchanged:
+After a preset ranks candidates, the **final top LONG signals** are re-checked
+on intraday bars (default 30m/15m/5m/1m) to refine the entry — the ranking and
+weights above are unchanged. SHORT signals keep their daily plan (the
+deterministic rules are written for the long side); the report discloses the
+skip:
 
 | Mode | When | Plan |
 |---|---|---|

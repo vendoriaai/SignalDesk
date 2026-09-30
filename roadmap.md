@@ -96,6 +96,49 @@ outcome layer, not by in-sample score.
 35. MCP client support for community finance servers.
 36. Scheduled background scans + OS notifications; watchlist alerts.
 37. Optional hosted relay (if BYOK adoption lags) — keep strictly out of v1 scope.
+38. ✅ **Shipped 2026-09-29** — Meta-label learning layer (`learn.py`), pulled
+    ahead of item 34 as the first "learned confidence" step: a small
+    L2 logistic model predicts P(r_net > 0) for planner-emitted signals from
+    the decision-time features the ledger freezes. Trained on ledger x
+    outcomes only (labels as resolved, R7), evaluated walk-forward only,
+    fingerprinted like the weights hash. Scores land on ledger records in
+    shadow mode (`ml_score`) and gate nothing — a filter or sizing rule may
+    act on them only after a trial closes positive on the out-of-sample
+    tercile evidence. Usefulness grows automatically as outcomes resolve;
+    every number stays subject to the small-sample caveats.
+39. ✅ **Shipped 2026-09-29** — Dual-direction engine: the scan scores every
+    symbol on both sides (`trend-momentum-short-v1`, the declared mirror of
+    the long preset) and emits the better eligible side — SHORT plans mirror
+    the long geometry (stop above entry, TP 2R/3R below), regime gates mirror
+    (refused above the 200d SMA / falling knife / extended below SMA20 / vol
+    extreme; BTC above its 200d SMA caps the crypto short book), R3 mirrors
+    (RSI ≤ 25 is a falling knife). Resolver, ledger risk unit and paper
+    slippage are direction-aware; Phase 7.5 refinement stays long-only and
+    discloses it. Weights fingerprint changed — pre-2026-09-29 ledger rows
+    are the long-only era for A/B comparisons.
+40. ✅ **Shipped 2026-09-30** — AI chart read (Phase 7.6, pre-registered as
+    trial `ai-chart-entry-v1`): every chosen pair's full chart ladder
+    (1d/1h/30m/15m/5m/1m) is rendered and streamed into the execution trace
+    before the signals, then one vision-capable LLM call per signal
+    (LiteLLM, the configured provider/model) reads the ladder, daily → 1m,
+    and chooses the entry. Guardrails stay deterministic: the stop distance
+    is clamped to [max(0.75×ATR(1d), 15× cost), 3×ATR(1d)] and TPs stay
+    2R/3R (R6); the read is streamed (🧠 analysis events), cited (R1,
+    `llm_vision`), recorded as `entry_mode="ai_chart_v1"` and judged by the
+    outcome layer — adoption needs ≥ 30 resolved AI-entry signals with a
+    positive expectancy CI (R7). Shorts get the same ladder and AI entry
+    (deterministic 7.5 rules remain long-only); demo scans and missing LLM
+    keys degrade with disclosure (R4).
+41. ✅ **Shipped 2026-09-30** — AI signal generation (Phase 6.5,
+    pre-registered as trial `ai-signal-generation-v1`): the vision LLM
+    generates the ranked signals themselves — per-symbol direction,
+    conviction score and rationale from the 1d+1h charts and a data brief —
+    replacing the deterministic preset as the signal source on the live path.
+    Policy gates are advisory warnings on this path (operator choice), the
+    risk floor and 2R/3R geometry stay deterministic (R6), the ledger records
+    `generator="ai_vision_v1"` + an AI weights hash, and the AI's passes
+    populate the avoid list. Deterministic engine remains the fallback for
+    demo/no-key/total-failure, disclosed (R4).
 
 ---
 

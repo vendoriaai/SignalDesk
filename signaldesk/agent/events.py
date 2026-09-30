@@ -21,6 +21,7 @@ class EventKind(str, Enum):
     SEARCH = "search"
     SANDBOX = "sandbox"
     CHART = "chart"
+    ANALYSIS = "analysis"   # AI chart read (Phase 7.6): what the model saw + chose
     RESULT = "result"
     WARN = "warn"
 

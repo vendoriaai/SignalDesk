@@ -4,9 +4,13 @@ from signaldesk.strategy.scoring import (
     RSI_OVEREXTENDED,
     STOP_FLOOR_MULT,
     SymbolFeatures,
+    build_short_trade_plan,
     build_trade_plan,
     refine_entry_plan,
+    score_fx_symbol_short,
+    score_short_symbol,
     score_symbol,
+    MacroInputs,
 )
 
 
@@ -141,3 +145,83 @@ def test_refine_never_degenerate_stop():
     plan = refine_entry_plan(daily, ltf)
     assert plan.stop < plan.entry
     assert plan.risk_refined > 0
+
+# --- short side: trend-momentum-short-v1 (the declared mirror) -------------------
+
+def bear(**over):
+    base = dict(
+        close=100.0, rsi14=38.0, atr14=4.0, swing_low_20=90.0,
+        above_sma20=False, above_sma50=False, ema9_above_ema21=False,
+        macd_hist=-0.5, macd_hist_prev=0.2, volume=2.0e8, volume_avg30=1.5e8,
+        sma20=110.0, sma50=115.0, ema9=98.0, ema21=102.0,
+    )
+    base.update(over)
+    return SymbolFeatures(**base)
+
+
+def test_full_bearish_fear_scores_100():
+    s = score_short_symbol(bear(), fear_greed=40.0)
+    assert s.total == 100.0
+    assert not s.overextended and not s.hold_capped
+
+
+def test_short_awards_mirrored_legs_only():
+    s = score_short_symbol(
+        bear(above_sma20=True, above_sma50=True, ema9_above_ema21=True,
+             sma20=90.0, sma50=85.0, ema9=102.0, ema21=98.0,
+             macd_hist=0.5, macd_hist_prev=-0.2, volume_avg30=3.0e8),
+        fear_greed=None)
+    assert s.total < 20.0
+
+
+def test_short_rsi_25_is_falling_knife_excluded():
+    s = score_short_symbol(bear(rsi14=24.0), fear_greed=40.0)
+    assert s.overextended  # R3 mirror: never emitted as SHORT
+
+
+def test_short_rsi_borderline_half_credit():
+    s = score_short_symbol(bear(rsi14=28.0), fear_greed=None)
+    assert s.rsi_regime == 7.5
+    s = score_short_symbol(bear(rsi14=52.0), fear_greed=None)
+    assert s.rsi_regime == 7.5
+
+
+def test_short_extreme_fear_caps_at_hold():
+    s = score_short_symbol(bear(), fear_greed=15.0)
+    assert s.hold_capped
+    assert s.sentiment == 0.0
+
+
+def test_short_missing_sma_levels_award_no_leg():
+    # NaN/missing levels are "cannot judge" — never an awarded short leg
+    s = score_short_symbol(bear(sma20=None, sma50=None, ema9=None, ema21=None),
+                           fear_greed=None)
+    assert s.trend == 0.0
+
+
+def test_short_trade_plan_geometry():
+    plan = build_short_trade_plan(entry=100.0, atr=4.0, swing_high=110.0)
+    # stop candidates: 106.0 (1.5*ATR) vs 110.0 (swing) -> closest is 106.0
+    assert plan.stop == 106.0
+    risk = plan.stop - plan.entry
+    assert plan.tp1 == pytest.approx(100.0 - 2 * risk)
+    assert plan.tp2 == pytest.approx(100.0 - 3 * risk)
+    assert plan.tp2 < plan.tp1 < plan.entry < plan.stop
+    assert not plan.floored
+
+
+def test_short_trade_plan_risk_floor():
+    plan = build_short_trade_plan(entry=100.0, atr=0.1, swing_high=100.05)
+    assert plan.floored
+    assert plan.stop == pytest.approx(100.0 + 0.75 * 0.1)
+    assert plan.tp2 < plan.tp1 < plan.entry < plan.stop
+
+
+def test_fx_short_macro_flips_with_direction():
+    rising = MacroInputs(dxy_chg_30d_pct=1.2, us10y_chg_30d_bp=20.0)
+    falling = MacroInputs(dxy_chg_30d_pct=-1.2, us10y_chg_30d_bp=-20.0)
+    # short USDJPY (USD base) is favored by a FALLING DXY — mirror of the long
+    s_rise = score_fx_symbol_short(bear(), rising, "base")
+    s_fall = score_fx_symbol_short(bear(), falling, "base")
+    assert s_fall.macro == pytest.approx(20.0)
+    assert s_rise.macro == 0.0

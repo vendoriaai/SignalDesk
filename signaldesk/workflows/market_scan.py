@@ -4,7 +4,8 @@ state machine replaces it in M3.
 
 Phases follow workflows.md: 0 plan → 1 news → 2 universe → 3 data →
 4 sandbox TA → 5 sentiment/macro → 6 catalysts → 7 scoring/signals →
-7.5 intraday entry refinement → 8 critique & synthesis.
+7.5 intraday entry refinement → 7.6 AI chart read (vision entry
+selection) → 8 critique & synthesis.
 """
 from __future__ import annotations
 
@@ -19,6 +20,7 @@ import pandas as pd
 from pydantic import BaseModel
 
 from signaldesk import costs as cost_model
+from signaldesk import learn as learn_mod
 from signaldesk import ledger as ledger_mod
 from signaldesk import universe as universe_mod
 from signaldesk.agent.events import EventBus, EventKind
@@ -121,6 +123,48 @@ class ScanRun:
 
 def _f(x: float) -> float:
     return float(x) if x is not None and not pd.isna(x) else float("nan")
+
+
+def _g(v: float) -> str:
+    """Compact finite-float formatter for AI briefs ("n/a" for NaN/None)."""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return "n/a"
+    return f"{f:.6g}" if math.isfinite(f) else "n/a"
+
+
+def _ai_gate_warnings(sym: str, direction: str, feat_row, fng_value: float | None,
+                      btc_below: bool, btc_above: bool, registry, price_cites):
+    """Policy-gate violations for an AI pick as (text, cite id) pairs.
+
+    Advisory on the AI path (operator choice, disclosed): a violation is shown
+    as a warning on the signal, never a silent pass and never a veto. The
+    fallback path keeps the hard vetoes."""
+    out = []
+    verdict = (scoring.regime_gate_short(feat_row) if direction == "SHORT"
+               else scoring.regime_gate(feat_row))
+    if verdict.reason:
+        wcite = None
+        if sym in price_cites and verdict.value is not None:
+            wcite = registry.register_derived(
+                round(verdict.value, 4), f"{sym} policy gate: {verdict.column}",
+                formula=verdict.formula, derived_from=[price_cites[sym]]).id
+        out.append((verdict.reason, wcite))
+    rsi = _f(feat_row.get("rsi14"))
+    if direction != "SHORT" and math.isfinite(rsi) and rsi >= scoring.RSI_OVEREXTENDED:
+        out.append((f"RSI {rsi:.1f} >= {scoring.RSI_OVEREXTENDED:.0f} overextension guard", None))
+    if direction == "SHORT" and math.isfinite(rsi) and rsi <= scoring.SHORT_RSI_OVEREXTENDED:
+        out.append((f"RSI {rsi:.1f} <= {scoring.SHORT_RSI_OVEREXTENDED:.0f} falling-knife guard", None))
+    if fng_value is not None and direction != "SHORT" and fng_value >= scoring.FNG_EXTREME_GREED:
+        out.append((f"Fear & Greed {fng_value:.0f} — extreme greed cap", None))
+    if fng_value is not None and direction == "SHORT" and fng_value <= scoring.FNG_EXTREME_FEAR:
+        out.append((f"Fear & Greed {fng_value:.0f} — extreme fear cap", None))
+    if direction != "SHORT" and btc_below:
+        out.append(("market regime: BTC below its 200d SMA (item 32 long gate)", None))
+    if direction == "SHORT" and btc_above:
+        out.append(("market regime: BTC above its 200d SMA (item 32 short mirror)", None))
+    return out
 
 
 def run_market_scan(req: MarketScanRequest, tools: ToolSet, bus: EventBus, run_dir: Path) -> ScanRun:
@@ -378,29 +422,332 @@ def run_market_scan(req: MarketScanRequest, tools: ToolSet, bus: EventBus, run_d
                 if not math.isfinite(macro.dxy_chg_30d_pct or math.nan):
                     disclosures.append("DXY 30d change missing; macro component partial.")
 
-    # ---- Phase 7 (scoring) + Phase 6 (catalysts) ----------------------------
-    breakdowns: dict[str, scoring.ScoreBreakdown] = {}
+    # ---- Phase 6.5: AI signal generation (vision LLM decides) ----------------
+    # When enabled (Settings, non-demo, LLM creds present), the vision LLM —
+    # not the deterministic preset — decides which symbols become signals: one
+    # call per symbol over its 1d+1h charts and a data brief. The deterministic
+    # Phase 7 engine below remains as the whole-scan fallback (demo, no key,
+    # setting off, no usable AI reads) and every fallback is disclosed (R4).
     feats: dict[str, scoring.SymbolFeatures] = {}
     for sym, row in features_df.iterrows():
-        feat = scoring.SymbolFeatures(
+        feats[sym] = scoring.SymbolFeatures(
             close=_f(row["close"]), rsi14=_f(row["rsi14"]), atr14=_f(row["atr14"]),
             swing_low_20=_f(row["swing_low_20"]),
             above_sma20=bool(row["above_sma20"]), above_sma50=bool(row["above_sma50"]),
             ema9_above_ema21=bool(row["ema9_above_ema21"]),
             macd_hist=_f(row["macd_hist"]), macd_hist_prev=_f(row["macd_hist_prev"]),
             volume=_f(row["volume"]), volume_avg30=_f(row["volume_avg30"]),
+            sma20=_f(row.get("sma20")), sma50=_f(row.get("sma50")),
+            ema9=_f(row.get("ema9")), ema21=_f(row.get("ema21")),
         )
-        feats[sym] = feat
-        if profile.preset == "fx":
-            breakdowns[sym] = scoring.score_fx_symbol(feat, macro, scoring.usd_leg(sym))
-        else:
-            breakdowns[sym] = scoring.score_symbol(feat, fng_value)
 
-    catalysts: dict[str, list[str]] = {s: [] for s in breakdowns}
-    if tools.search.available():
-        top5 = sorted(breakdowns, key=lambda s: breakdowns[s].total, reverse=True)[:5]
+    # BTC book-regime flags (item 32, trial T2): hard vetoes on the fallback
+    # path; advisory warnings on the AI path (operator choice, disclosed).
+    market_regime_reason = ""        # non-empty: long book stands down
+    market_regime_reason_short = ""  # non-empty: short book stands down
+    btc_gate_cite = None
+    btc_below = btc_above = False
+    if market == "crypto" and "BTCUSD" in features_df.index:
+        btc_feat = features_df.loc["BTCUSD"]
+        btc_below = scoring.market_regime_below_trend(btc_feat)
+        btc_above = scoring.market_regime_above_trend(btc_feat)
+        if btc_below or btc_above:
+            btc_close = _f(btc_feat.get("close"))
+            btc_sma200 = _f(btc_feat.get("sma200"))
+            if "BTCUSD" in price_cites and btc_sma200:
+                btc_gate_cite = registry.register_derived(
+                    round(btc_close / btc_sma200, 4), "BTC 200d regime ratio",
+                    formula="close / SMA200 (< 1 caps longs, > 1 caps shorts)",
+                    derived_from=[price_cites["BTCUSD"]]).id
+        if btc_below:
+            market_regime_reason = ("market regime: BTC below its 200d SMA — the "
+                                    "long-only engine stands down (item 32)")
+        if btc_above:
+            market_regime_reason_short = ("market regime: BTC above its 200d SMA — "
+                                          "the short book stands down (item 32 mirror)")
+
+    use_ai_engine = False
+    generator_model = ""
+    picks: dict[str, dict] = {}
+    if not demo_mode:
+        try:
+            from signaldesk import userconfig as _uc
+
+            gen_enabled = _uc.Settings(run_dir.parent.parent).get("ai_signal_generation")
+        except Exception:
+            gen_enabled = True
+        if gen_enabled:
+            from signaldesk.agent import vision as vision_mod
+
+            creds = vision_mod.resolve_creds()
+            if creds is None:
+                disclosures.append(
+                    "AI signal generation unavailable: no LLM key configured — "
+                    "deterministic preset used (R4).")
+            else:
+                from signaldesk.workflows import ai_generate as ai_gen
+
+                gen_provider, gen_key, gen_model = creds
+                generator_model = vision_mod.model_id(gen_provider, gen_model)
+                altseason_value = next((s.value for s in sentiment
+                                        if s.index == "altcoin_season"), None)
+                btc_note = ""
+                if market == "crypto" and "BTCUSD" in features_df.index:
+                    _btc_close = _f(features_df.loc["BTCUSD"].get("close"))
+                    _btc_ma = _f(features_df.loc["BTCUSD"].get("sma200"))
+                    _side = "below" if btc_below else ("above" if btc_above else "near")
+                    btc_note = (f"market context: BTC {_side} its 200d SMA "
+                                f"({_g(_btc_close)} vs {_g(_btc_ma)})")
+                changes_24h = {str(r.symbol): (float(r.change_24h_pct)
+                                               if getattr(r, "change_24h_pct", None) is not None else None)
+                               for r in quotes_df.itertuples()}
+                bus.emit("P6.5", EventKind.PHASE,
+                         f"AI signal generation: {len(features_df.index)} symbol(s) "
+                         f"(model {generator_model})")
+                picks = ai_gen.generate_picks(
+                    features_df, charts, run_dir, bus, disclosures,
+                    provider=gen_provider, key=gen_key, model=gen_model,
+                    model_label=generator_model, fng_value=fng_value,
+                    altseason_value=altseason_value, btc_note=btc_note,
+                    context_summary=context_summary, changes_24h=changes_24h)
+                use_ai_engine = bool(picks)
+                if not use_ai_engine:
+                    disclosures.append(
+                        "AI signal generation returned no usable reads — "
+                        "deterministic preset used (R4).")
+
+    # ---- Phase 7: signals (AI-generated, or deterministic fallback) ----------
+    signals: list[Signal] = []
+    avoid: list[AvoidEntry] = []
+    cost_cite_ids: dict[str, str] = {}
+    low_history_syms: set[str] = set()
+
+    if use_ai_engine:
+        # The vision model's picks ARE the signals (Phase 6.5): direction and
+        # conviction come from the charts + data brief; the stop starts at the
+        # AI's invalidation level, clamped to the R6 risk floor. Policy gates
+        # are advisory warnings here (operator choice) — hard vetoes only on
+        # the fallback path below.
+        from signaldesk.workflows.ai_generate import _ensure_generation_trial
+
+        for sym, pick in sorted(picks.items(), key=lambda kv: kv[1]["score"], reverse=True):
+            f = feats[sym]
+            feat_row = features_df.loc[sym]
+            decision_cite = registry.register_direct(
+                pick["rationale"] or pick["direction"], f"{sym} AI signal decision",
+                source_tool="llm_vision", column="decision").id
+            cost_pct = cost_model.round_trip_cost_pct(market, sym)
+            if pick["direction"] == "NONE" or pick["score"] < req.min_score:
+                avoid.append(AvoidEntry(
+                    symbol=sym,
+                    reason=(f"AI passed: {pick['direction']} score "
+                            f"{pick['score']:.0f}/100 (threshold {req.min_score:.0f}) "
+                            f"— {pick['rationale']}"),
+                    citations=[decision_cite]))
+                continue
+            cites = [derived[sym]["rsi"], derived[sym]["macd_hist"], derived[sym]["atr"]]
+            if sym in price_cites:
+                cites.append(price_cites[sym])
+            cost_cite = registry.register_direct(
+                cost_pct, f"{sym} assumed round-trip cost %",
+                source_tool="cost_model", file="signaldesk/costs.py",
+                row_key=sym, column="round_trip_cost_pct",
+            )
+            cost_cite_ids[sym] = cost_cite.id
+            cites.append(cost_cite.id)
+            plan = scoring.ai_draft_plan(f.close, f.atr14, direction=pick["direction"],
+                                         invalidation=pick["invalidation"],
+                                         cost_pct=cost_pct)
+            risk_pct = abs(plan.entry - plan.stop) / plan.entry * 100.0 if plan.entry else 0.0
+            cost_r = cost_model.cost_in_r(cost_pct, risk_pct)
+            confluence = [f"AI decision: {pick['direction']} score "
+                          f"{pick['score']:.0f}/100 — {pick['rationale']}"]
+            for wtxt, wcite in _ai_gate_warnings(sym, pick["direction"], feat_row,
+                                                 fng_value, btc_below, btc_above,
+                                                 registry, price_cites):
+                confluence.append(f"⚠ policy gate: {wtxt} — AI proceeded")
+                if wcite:
+                    cites.append(wcite)
+            if plan.floored:
+                confluence.append(f"stop floored: {scoring.MIN_RISK_ATR_MULT:g}xATR(1d) / "
+                                  f"{scoring.MIN_RISK_COST_MULT:g}x cost keeps cost at {cost_r:.2f}R")
+            if profile.session_note:
+                confluence.append(profile.session_note)
+            signals.append(Signal(
+                symbol=sym, direction=pick["direction"], score=pick["score"],
+                entry=round(plan.entry, 8), stop=round(plan.stop, 8),
+                tp1=round(plan.tp1, 8), tp2=round(plan.tp2, 8),
+                confluence=confluence, catalysts=[], citations=cites,
+                cost_pct=cost_pct, cost_in_r=round(cost_r, 4),
+                ai_generated=True,
+            ))
+        if signals:
+            disclosures.append(
+                "AI-generated signals (Phase 6.5): selection, direction and score "
+                f"come from the vision model ({generator_model}) reading each "
+                "symbol's daily+1h charts and data brief; policy gates are shown "
+                "as warnings, not vetoes (operator choice, pre-registered trial "
+                "ai-signal-generation-v1); draft stops stay floored at "
+                "max(0.75xATR(1d), 15x cost) and TPs at 2R/3R.")
+            _ensure_generation_trial(run_dir.parent.parent)
+
+    if not use_ai_engine:
+        # ---- Deterministic engine (fallback + demo/no-key path) --------------
+        if market == "crypto" and btc_below:
+            bus.emit("P7", EventKind.WARN, "regime gate: BTC below 200d SMA — longs capped")
+        if market == "crypto" and btc_above:
+            bus.emit("P7", EventKind.WARN, "regime gate: BTC above 200d SMA — shorts capped")
+        breakdowns: dict[str, scoring.ScoreBreakdown] = {}        # long side
+        breakdowns_short: dict[str, scoring.ScoreBreakdown] = {}  # short side
+        for sym, feat in feats.items():
+            if profile.preset == "fx":
+                breakdowns[sym] = scoring.score_fx_symbol(feat, macro, scoring.usd_leg(sym))
+                breakdowns_short[sym] = scoring.score_fx_symbol_short(feat, macro, scoring.usd_leg(sym))
+            else:
+                breakdowns[sym] = scoring.score_symbol(feat, fng_value)
+                breakdowns_short[sym] = scoring.score_short_symbol(feat, fng_value)
+
+        def _best_total(sym: str) -> float:
+            return max(breakdowns[sym].total, breakdowns_short[sym].total)
+
+        for sym in sorted(breakdowns, key=_best_total, reverse=True):
+            f = feats[sym]
+            feat_row = features_df.loc[sym]
+            cites = [derived[sym]["rsi"], derived[sym]["macd_hist"], derived[sym]["atr"]]
+            if sym in price_cites:
+                cites.append(price_cites[sym])
+            # assumed round-trip cost is a cited assumption, not market data
+            cost_pct = cost_model.round_trip_cost_pct(market, sym)
+            cost_cite = registry.register_direct(
+                cost_pct, f"{sym} assumed round-trip cost %",
+                source_tool="cost_model", file="signaldesk/costs.py",
+                row_key=sym, column="round_trip_cost_pct",
+            )
+            cost_cite_ids[sym] = cost_cite.id
+
+            # Per-side gate pass, each mirroring the other's order: overextension,
+            # sentiment extreme, book regime, then the per-symbol regime gates.
+            blocked: dict[str, tuple[str, list[str]]] = {}  # side -> (reason, gate cites)
+
+            bd = breakdowns[sym]
+            if bd.overextended:
+                blocked["LONG"] = (f"RSI {f.rsi14:.1f} >= 75 — overextended, long setup disallowed (R3)", [])
+            elif bd.hold_capped:
+                blocked["LONG"] = (f"Fear & Greed {fng_value:.0f} — extreme greed caps all signals at HOLD", [])
+            elif market_regime_reason:
+                blocked["LONG"] = (market_regime_reason
+                                   + (f" [{btc_gate_cite}]" if btc_gate_cite else ""),
+                                   [btc_gate_cite] if btc_gate_cite else [])
+            else:
+                verdict = scoring.regime_gate(feat_row)
+                if not verdict.reason:
+                    sma200_v = _f(feat_row.get("sma200"))
+                    if not math.isfinite(sma200_v):
+                        low_history_syms.add(sym)   # <200d history: trend gate unevaluated (R4)
+                if verdict.reason:
+                    gate_cite = None
+                    if sym in price_cites:
+                        gate_cite = registry.register_derived(
+                            round(verdict.value, 4) if verdict.value is not None else 0.0,
+                            f"{sym} regime gate: {verdict.column}",
+                            formula=verdict.formula, derived_from=[price_cites[sym]],
+                        ).id
+                    blocked["LONG"] = (f"{verdict.reason} [{gate_cite}]" if gate_cite else verdict.reason,
+                                       [gate_cite] if gate_cite else [])
+
+            bd_s = breakdowns_short[sym]
+            if bd_s.overextended:
+                blocked["SHORT"] = (f"RSI {f.rsi14:.1f} <= 25 — falling knife, short setup disallowed (R3 mirror)", [])
+            elif bd_s.hold_capped:
+                blocked["SHORT"] = (f"Fear & Greed {fng_value:.0f} — extreme fear caps short signals at HOLD", [])
+            elif market_regime_reason_short:
+                blocked["SHORT"] = (market_regime_reason_short
+                                    + (f" [{btc_gate_cite}]" if btc_gate_cite else ""),
+                                    [btc_gate_cite] if btc_gate_cite else [])
+            else:
+                verdict_s = scoring.regime_gate_short(feat_row)
+                if not verdict_s.reason:
+                    sma200_v = _f(feat_row.get("sma200"))
+                    if not math.isfinite(sma200_v):
+                        low_history_syms.add(sym)
+                if verdict_s.reason:
+                    gate_cite = None
+                    if sym in price_cites:
+                        gate_cite = registry.register_derived(
+                            round(verdict_s.value, 4) if verdict_s.value is not None else 0.0,
+                            f"{sym} regime gate (short): {verdict_s.column}",
+                            formula=verdict_s.formula, derived_from=[price_cites[sym]],
+                        ).id
+                    blocked["SHORT"] = (f"{verdict_s.reason} [{gate_cite}]" if gate_cite else verdict_s.reason,
+                                        [gate_cite] if gate_cite else [])
+
+            eligible = []
+            for side in ("LONG", "SHORT"):
+                total = breakdowns[sym].total if side == "LONG" else breakdowns_short[sym].total
+                if side not in blocked and total >= req.min_score:
+                    eligible.append((side, total))
+            if not eligible:
+                if blocked:
+                    reason_txt = " | ".join(f"{side} refused: {reason}"
+                                            for side, (reason, _cs) in blocked.items())
+                    avoid_cites = list(cites) + [c for (_r, cs) in blocked.values() for c in cs]
+                    avoid.append(AvoidEntry(symbol=sym, reason=reason_txt, citations=avoid_cites))
+                continue
+
+            # LONG wins an exact tie (listed first): the conservative default.
+            direction = max(eligible, key=lambda kv: kv[1])[0]
+            bd = breakdowns[sym] if direction == "LONG" else breakdowns_short[sym]
+            cites.append(cost_cite.id)
+            if direction == "LONG":
+                plan = scoring.build_trade_plan(f.close, f.atr14, f.swing_low_20, cost_pct=cost_pct)
+            else:
+                plan = scoring.build_short_trade_plan(f.close, f.atr14,
+                                                      _f(feat_row.get("swing_high_20")),
+                                                      cost_pct=cost_pct)
+            risk_pct = abs(plan.entry - plan.stop) / plan.entry * 100.0 if plan.entry else 0.0
+            cost_r = cost_model.cost_in_r(cost_pct, risk_pct)
+            confluence = list(bd.reasons)
+            if plan.floored:
+                confluence.append(f"stop floored: {scoring.MIN_RISK_ATR_MULT:g}xATR(1d) / "
+                                  f"{scoring.MIN_RISK_COST_MULT:g}x cost keeps cost at {cost_r:.2f}R")
+            ltf = ltf_flags.get(sym)
+            if ltf and ltf.get("ltf_above_sma20") is not None:
+                tf = ltf.get("ltf", DEFAULT_TIMEFRAMES[1] if len(DEFAULT_TIMEFRAMES) > 1 else "1h")
+                if direction == "LONG":
+                    aligned = bool(ltf["ltf_above_sma20"])
+                else:
+                    aligned = not bool(ltf["ltf_above_sma20"]) and not f.above_sma20
+                if aligned:
+                    ltf_cite = registry.register_derived(
+                        "aligned", f"{sym} {tf} trend alignment",
+                        formula=f"SMA20({tf}) vs close({tf})", derived_from=[price_cites[sym]],
+                    )
+                    side_txt = "above" if direction == "LONG" else "below"
+                    confluence.append(f"{tf} trend aligned ({side_txt} SMA20 on both timeframes)")
+                    cites.append(ltf_cite.id)
+                else:
+                    confluence.append(f"{tf} trend divergent — LTF caution")
+                    disclosures.append(f"{sym}: {tf} trend disagrees with daily")
+            pip = pip_size(sym)
+            if not math.isnan(pip) and profile.session_note:
+                confluence.append(f"{profile.session_note} Risk {abs(plan.entry - plan.stop) / pip:.0f} pips")
+            elif profile.session_note:
+                confluence.append(profile.session_note)
+            signals.append(Signal(
+                symbol=sym, direction=direction, score=bd.total,
+                entry=round(plan.entry, 8), stop=round(plan.stop, 8),
+                tp1=round(plan.tp1, 8), tp2=round(plan.tp2, 8),
+                confluence=confluence, catalysts=[], citations=cites,
+                cost_pct=cost_pct, cost_in_r=round(cost_r, 4),
+            ))
+    signals = signals[:5]
+
+    # ---- Phase 6 (catalysts): news research for the final signals ------------
+    catalysts: dict[str, list[str]] = {}
+    if tools.search.available() and signals:
         month = today[:7]
-        for sym in top5:
+        for s in signals:
+            sym = s.symbol
             base = sym[:-3] if (market == "crypto" and sym.endswith("USD")) else sym
             queries = [f"{base} price surge news catalyst", f"{base} news {month}"]
             for q, hits in tools.search.batch(queries, max_results=2).items():
@@ -414,136 +761,61 @@ def run_market_scan(req: MarketScanRequest, tools: ToolSet, bus: EventBus, run_d
                         column="extracted_text" if extracted else "snippet",
                         row_key=h.url[:120],
                     )
-                    catalysts[sym].append(f"{claim} [{cite.id}]")
-
-    # ---- Phase 7 cont.: signals ----------------------------------------------
-    signals: list[Signal] = []
-    avoid: list[AvoidEntry] = []
-    cost_cite_ids: dict[str, str] = {}
-
-    # Regime gates (item 32, trial T2): a long-only engine refuses longs when
-    # the market trend, volatility extremes or the candidate's own extension
-    # say the trade is a chase. Gated symbols land in the avoid list, cited.
-    market_regime_reason = ""
-    btc_gate_cite = None
-    if market == "crypto" and "BTCUSD" in features_df.index \
-            and scoring.market_regime_below_trend(features_df.loc["BTCUSD"]):
-        market_regime_reason = ("market regime: BTC below its 200d SMA — the "
-                                "long-only engine stands down (item 32)")
-        btc_close = _f(features_df.loc["BTCUSD"].get("close"))
-        btc_sma200 = _f(features_df.loc["BTCUSD"].get("sma200"))
-        if "BTCUSD" in price_cites and btc_sma200:
-            btc_gate_cite = registry.register_derived(
-                round(btc_close / btc_sma200, 4), "BTC 200d regime ratio",
-                formula="close / SMA200 (< 1 caps the whole crypto book)",
-                derived_from=[price_cites["BTCUSD"]]).id
-        bus.emit("P7", EventKind.WARN, "regime gate: BTC below 200d SMA — longs capped")
-
-    low_history = 0
-    for sym, score in sorted(breakdowns.items(), key=lambda kv: kv[1].total, reverse=True):
-        f = feats[sym]
-        cites = [derived[sym]["rsi"], derived[sym]["macd_hist"], derived[sym]["atr"]]
-        if sym in price_cites:
-            cites.append(price_cites[sym])
-        # assumed round-trip cost is a cited assumption, not market data
-        cost_pct = cost_model.round_trip_cost_pct(market, sym)
-        cost_cite = registry.register_direct(
-            cost_pct, f"{sym} assumed round-trip cost %",
-            source_tool="cost_model", file="signaldesk/costs.py",
-            row_key=sym, column="round_trip_cost_pct",
-        )
-        cost_cite_ids[sym] = cost_cite.id
-        if score.overextended:
-            avoid.append(AvoidEntry(
-                symbol=sym,
-                reason=f"RSI {f.rsi14:.1f} >= 75 — overextended, long setup disallowed (R3)",
-                citations=cites,
-            ))
-            continue
-        if score.hold_capped:
-            avoid.append(AvoidEntry(
-                symbol=sym,
-                reason=f"Fear & Greed {fng_value:.0f} — extreme greed caps all signals at HOLD",
-                citations=cites,
-            ))
-            continue
-        if market_regime_reason:
-            avoid.append(AvoidEntry(
-                symbol=sym,
-                reason=f"{market_regime_reason}"
-                       + (f" [{btc_gate_cite}]" if btc_gate_cite else ""),
-                citations=cites + ([btc_gate_cite] if btc_gate_cite else []),
-            ))
-            continue
-        verdict = scoring.regime_gate(features_df.loc[sym])
-        if not verdict.reason:
-            sma200_v = _f(features_df.loc[sym].get("sma200"))
-            if not math.isfinite(sma200_v):
-                low_history += 1          # <200d history: trend gate unevaluated (R4)
-        if verdict.reason:
-            gate_cite = None
-            if sym in price_cites:
-                gate_cite = registry.register_derived(
-                    round(verdict.value, 4) if verdict.value is not None else 0.0,
-                    f"{sym} regime gate: {verdict.column}",
-                    formula=verdict.formula, derived_from=[price_cites[sym]],
-                ).id
-            avoid.append(AvoidEntry(
-                symbol=sym,
-                reason=f"{verdict.reason} [{gate_cite}]" if gate_cite else verdict.reason,
-                citations=cites + ([gate_cite] if gate_cite else []),
-            ))
-            continue
-        if score.total < req.min_score:
-            continue
-        cites.append(cost_cite.id)
-        plan = scoring.build_trade_plan(f.close, f.atr14, f.swing_low_20, cost_pct=cost_pct)
-        risk_pct = (plan.entry - plan.stop) / plan.entry * 100.0 if plan.entry else 0.0
-        cost_r = cost_model.cost_in_r(cost_pct, risk_pct)
-        confluence = list(score.reasons)
-        if plan.floored:
-            confluence.append(f"stop floored: {scoring.MIN_RISK_ATR_MULT:g}xATR(1d) / "
-                              f"{scoring.MIN_RISK_COST_MULT:g}x cost keeps cost at {cost_r:.2f}R")
-        ltf = ltf_flags.get(sym)
-        if ltf and ltf.get("ltf_above_sma20") is not None:
-            tf = ltf.get("ltf", DEFAULT_TIMEFRAMES[1] if len(DEFAULT_TIMEFRAMES) > 1 else "1h")
-            if ltf["ltf_above_sma20"]:
-                ltf_cite = registry.register_derived(
-                    "aligned", f"{sym} {tf} trend alignment",
-                    formula=f"SMA20({tf}) vs close({tf})", derived_from=[price_cites[sym]],
-                )
-                confluence.append(f"{tf} trend aligned (above SMA20 on both timeframes)")
-                cites.append(ltf_cite.id)
-            else:
-                confluence.append(f"{tf} trend divergent — LTF caution")
-                disclosures.append(f"{sym}: {tf} trend disagrees with daily")
-        pip = pip_size(sym)
-        if not math.isnan(pip) and profile.session_note:
-            confluence.append(f"{profile.session_note} Risk {abs(plan.entry - plan.stop) / pip:.0f} pips")
-        elif profile.session_note:
-            confluence.append(profile.session_note)
-        signals.append(Signal(
-            symbol=sym, score=score.total,
-            entry=round(plan.entry, 8), stop=round(plan.stop, 8),
-            tp1=round(plan.tp1, 8), tp2=round(plan.tp2, 8),
-            confluence=confluence, catalysts=catalysts.get(sym, []), citations=cites,
-            cost_pct=cost_pct, cost_in_r=round(cost_r, 4),
-        ))
-    signals = signals[:5]
+                    catalysts.setdefault(sym, []).append(f"{claim} [{cite.id}]")
+        for s in signals:
+            s.catalysts = catalysts.get(s.symbol, [])
+    low_history = len(low_history_syms)
 
     # ---- Phase 7.5: intraday entry refinement --------------------------------
+    # Deterministic LTF rules are written for the long side, so they refine
+    # LONG signals only — SHORT signals keep their daily plan unless the
+    # Phase 7.6 AI chart read chooses their entry (disclosed, never silent, R4).
     entry_tfs = DEFAULT_ENTRY_TIMEFRAMES if req.entry_timeframes is None else tuple(req.entry_timeframes)
-    if entry_tfs and signals:
+    long_signals = [s for s in signals if s.direction != "SHORT"]
+    short_signals = [s for s in signals if s.direction == "SHORT"]
+    ltf_csvs: dict[str, dict[str, Path]] = {}
+    if entry_tfs and long_signals:
         from signaldesk.workflows.entry_refine import refine_signal_entries
 
         refine_signal_entries(
-            signals, list(entry_tfs), tools.ohlcv, run_dir, bus, registry, disclosures, charts,
-            price_cite_ids={s.symbol: price_cites[s.symbol] for s in signals if s.symbol in price_cites},
-            atr_cite_ids={s.symbol: derived[s.symbol]["atr"] for s in signals if s.symbol in derived},
-            atr_daily={s.symbol: feats[s.symbol].atr14 for s in signals if s.symbol in feats},
-            cost_pcts={s.symbol: s.cost_pct for s in signals},
+            long_signals, list(entry_tfs), tools.ohlcv, run_dir, bus, registry, disclosures, charts,
+            price_cite_ids={s.symbol: price_cites[s.symbol] for s in long_signals if s.symbol in price_cites},
+            atr_cite_ids={s.symbol: derived[s.symbol]["atr"] for s in long_signals if s.symbol in derived},
+            atr_daily={s.symbol: feats[s.symbol].atr14 for s in long_signals if s.symbol in feats},
+            cost_pcts={s.symbol: s.cost_pct for s in long_signals},
             cost_cite_ids=cost_cite_ids,
+            fetched_out=ltf_csvs,
         )
+    if entry_tfs and short_signals:
+        # Phase 7.6: the AI chart read needs the same chart ladder for shorts.
+        from signaldesk.workflows.entry_refine import fetch_ltf_charts
+
+        fetched_shorts = fetch_ltf_charts(short_signals, list(entry_tfs),
+                                          tools.ohlcv, run_dir, bus, disclosures, charts)
+        for sym, paths in fetched_shorts.items():
+            ltf_csvs.setdefault(sym, {}).update(paths)
+    if short_signals:
+        disclosures.append(
+            "Deterministic intraday refinement (Phase 7.5) is long-only; SHORT "
+            "signals keep their daily plan unless the Phase 7.6 AI chart read "
+            "chooses their entry.")
+
+    # ---- Phase 7.6: AI chart read (vision entry selection) --------------------
+    # The full chart ladder (1d -> 1m) for every chosen pair was streamed above;
+    # a vision-capable LLM now picks the entry per signal. Stop geometry stays
+    # risk-floored (R6); ledger records carry entry_mode="ai_chart_v1" (R7).
+    from signaldesk.workflows.entry_refine import maybe_ai_chart_reads
+
+    maybe_ai_chart_reads(
+        signals, charts, run_dir, bus, registry, disclosures,
+        demo_mode=demo_mode,
+        price_cite_ids={s.symbol: price_cites[s.symbol] for s in signals if s.symbol in price_cites},
+        atr_cite_ids={s.symbol: derived[s.symbol]["atr"] for s in signals if s.symbol in derived},
+        atr_daily={s.symbol: feats[s.symbol].atr14 for s in signals if s.symbol in feats},
+        cost_pcts={s.symbol: s.cost_pct for s in signals},
+        cost_cite_ids=cost_cite_ids,
+        ltf_csvs=ltf_csvs,
+    )
 
     if signals:
         assumptions = ", ".join(f"{s.symbol} {s.cost_pct:g}%" for s in signals)
@@ -582,18 +854,24 @@ def run_market_scan(req: MarketScanRequest, tools: ToolSet, bus: EventBus, run_d
                 f"down to {total:.2f}% total."
             )
 
-    # Regime-gate disclosures (item 32, trial T2)
-    if breakdowns:
+    # Regime-gate disclosures (item 32, trial T2 + declared short mirror)
+    if not use_ai_engine and breakdowns:
         disclosures.append(
-            "Regime gates (item 32, declared policy): longs refused below the "
-            "200d SMA, above "
+            "Regime gates (item 32 + short mirror, declared policy): longs refused "
+            "below the 200d SMA, above "
             f"{scoring.REGIME_VOL_EXTREME_ANN_PCT:g}% annualized volatility, above "
             f"+{scoring.REGIME_MAX_7D_GAIN_PCT:g}% 7d gain, or more than "
-            f"{scoring.REGIME_MAX_SMA20_DIST_PCT:g}% over SMA20; BTC below its own "
-            "200d SMA caps the whole crypto book."
+            f"{scoring.REGIME_MAX_SMA20_DIST_PCT:g}% over SMA20; shorts refused by "
+            "the same gates mirrored (above the 200d SMA, into a falling-knife 7d "
+            "move, extended below SMA20, at the same volatility extreme). BTC "
+            "below its own 200d SMA caps the long book, BTC above it caps the "
+            "short book."
         )
-    if market_regime_reason:
-        disclosures.append(f"Regime gate active: {market_regime_reason}")
+    if not use_ai_engine:
+        if market_regime_reason:
+            disclosures.append(f"Regime gate active: {market_regime_reason}")
+        if market_regime_reason_short:
+            disclosures.append(f"Regime gate active: {market_regime_reason_short}")
     if low_history:
         disclosures.append(
             f"Regime gate: {low_history} candidate(s) lack 200d history — the "
@@ -601,9 +879,11 @@ def run_market_scan(req: MarketScanRequest, tools: ToolSet, bus: EventBus, run_d
         )
 
     # ---- Phase 8: critique & synthesis ----------------------------------------
-    preset_name = profile.preset if profile.preset == "crypto" else scoring.FX_PRESET_NAME
-    if profile.preset == "crypto":
-        preset_name = scoring.PRESET_NAME
+    if use_ai_engine:
+        preset_name = "ai-vision-v1"
+    else:
+        preset_name = (scoring.PRESET_NAME if profile.preset == "crypto"
+                       else scoring.FX_PRESET_NAME)
     report = ScanReport(
         market=market,
         as_of=datetime.now(UTC).isoformat(timespec="seconds"),
@@ -617,6 +897,7 @@ def run_market_scan(req: MarketScanRequest, tools: ToolSet, bus: EventBus, run_d
         disclosures=disclosures,
         citations=registry.all(),
         charts=charts,
+        generator_model=(generator_model if use_ai_engine else ""),
     )
     coverage = report.citation_coverage
     if coverage < 1.0:
@@ -674,6 +955,17 @@ def run_market_scan(req: MarketScanRequest, tools: ToolSet, bus: EventBus, run_d
         cost_pcts={s.symbol: s.cost_pct for s in signals},
         demo=demo_mode, contexts=contexts,
     )
+
+    # ML shadow scores (learning layer): the saved model records P(r_net > 0)
+    # per signal on the ledger record and gates nothing — acting on the score
+    # requires a pre-registered trial that closed positive (rule R7).
+    shadow_model = learn_mod.load_model(learn_mod.default_model_path(run_dir))
+    if shadow_model is not None:
+        scored, model_fp = learn_mod.apply_shadow_scores(ledger_records, shadow_model)
+        if scored:
+            bus.emit("P8", EventKind.RESULT,
+                     f"ml shadow: {scored} signal(s) scored by model {model_fp} (shadow only)")
+
     ledger_file = ledger_mod.default_ledger_path(run_dir)
     written = ledger_mod.append_records(ledger_file, ledger_records, dedupe=True)
     if written:

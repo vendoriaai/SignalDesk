@@ -40,6 +40,8 @@ class LedgerRecord(BaseModel):
     score: float
     preset: str = ""
     weights_hash: str = ""
+    generator: str = "deterministic"  # deterministic | ai_vision_v1 (Phase 6.5)
+    generator_model: str = ""         # vision model that generated the signal
     entry: float
     stop: float
     tp1: float
@@ -56,6 +58,8 @@ class LedgerRecord(BaseModel):
     app_version: str = ""
     snapshots: list[str] = Field(default_factory=list)
     context: dict[str, float] = Field(default_factory=dict)  # signal-time regime/chase context
+    ml_score: float | None = None     # shadow P(r_net > 0) from learn.py — gates nothing
+    ml_fingerprint: str = ""          # model fingerprint that produced ml_score
 
 
 def sha256_file(path: Path | str) -> str:
@@ -137,11 +141,26 @@ def append_records(path: Path, records: list[LedgerRecord], *,
 
 def actionable_levels(signal) -> tuple[float, float, float, float, str]:
     """The levels a user would actually act on: the refined plan when it is
-    actionable, otherwise the daily plan."""
+    actionable, otherwise the daily plan. An AI chart-read plan (Phase 7.6)
+    is actionable and recorded as entry_mode="ai_chart_v1" (R7 attribution)."""
     plan = getattr(signal, "entry_plan", None)
+    if plan is not None and getattr(plan, "ai_entry", False):
+        return plan.entry, plan.stop, plan.tp1, plan.tp2, "ai_chart_v1"
     if plan is not None and plan.mode in ("market", "pullback"):
         return plan.entry, plan.stop, plan.tp1, plan.tp2, plan.mode
     return signal.entry, signal.stop, signal.tp1, signal.tp2, "daily"
+
+
+def record_weights_hash(report) -> str:
+    """Rule-set fingerprint for the ledger (R7): the deterministic preset
+    constants normally; when the signals were AI-generated (Phase 6.5), a
+    fingerprint of the AI pipeline (model + prompt version) so AI-era outcomes
+    stay separable from the deterministic era."""
+    if getattr(report, "generator_model", ""):
+        import signaldesk.workflows.ai_generate as ai_gen
+
+        return ai_gen.ai_weights_hash(report.generator_model)
+    return scoring.weights_fingerprint()
 
 
 def record_for_signal(report, signal, run_id: str, *, market: str,
@@ -150,7 +169,9 @@ def record_for_signal(report, signal, run_id: str, *, market: str,
                       cost_pct: float | None = None,
                       context: dict[str, float] | None = None) -> LedgerRecord:
     entry, stop, tp1, tp2, mode = actionable_levels(signal)
-    risk = entry - stop
+    # risk is the positive unit: entry-below-stop for a SHORT (direction field
+    # carries the orientation, every R computation stays sign-clean)
+    risk = abs(entry - stop)
     risk_pct = (risk / entry * 100.0) if entry else 0.0
     cost = cost_pct if cost_pct is not None else cost_model.round_trip_cost_pct(market, signal.symbol)
     import signaldesk
@@ -165,7 +186,9 @@ def record_for_signal(report, signal, run_id: str, *, market: str,
         direction=getattr(signal, "direction", "LONG"),
         score=float(signal.score),
         preset=getattr(report, "scoring_preset", ""),
-        weights_hash=scoring.weights_fingerprint(),
+        generator=("ai_vision_v1" if getattr(report, "generator_model", "") else "deterministic"),
+        generator_model=getattr(report, "generator_model", ""),
+        weights_hash=record_weights_hash(report),
         entry=round(float(entry), 8), stop=round(float(stop), 8),
         tp1=round(float(tp1), 8), tp2=round(float(tp2), 8),
         entry_mode=mode,

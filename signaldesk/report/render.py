@@ -27,6 +27,11 @@ def to_markdown(report: ScanReport) -> str:
     lines.append("")
     lines.append(f"*Strategy preset: `{report.scoring_preset}` · universe: "
                  f"{', '.join(report.universe)}*")
+    if report.generator_model:
+        lines.append(f"*Signal generation: AI (Phase 6.5) — selection, direction and "
+                     f"score decided by the vision model `{report.generator_model}`; "
+                     f"policy gates are advisory warnings (trial "
+                     f"ai-signal-generation-v1).*")
     lines.append("")
     lines.append("## Market context")
     lines.append(report.context_summary or "_No market context available._")
@@ -49,8 +54,9 @@ def to_markdown(report: ScanReport) -> str:
         lines.append("|---|---|---|---|---|---|---|---|---|---|---|")
         for i, s in enumerate(report.signals, 1):
             confluence = "; ".join(s.confluence + s.catalysts)
+            score_txt = f"{s.score:.0f} (AI)" if s.ai_generated else f"{s.score:.0f}"
             lines.append(
-                f"| {i} | {s.symbol} | {s.direction} | {s.score:.0f} | {_fmt(s.entry)} | "
+                f"| {i} | {s.symbol} | {s.direction} | {score_txt} | {_fmt(s.entry)} | "
                 f"{_fmt(s.stop)} | {_fmt(s.tp1)} | {_fmt(s.tp2)} | {s.rr} | {confluence} | "
                 f"{_cite(s.citations)} |"
             )

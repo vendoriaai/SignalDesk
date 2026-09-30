@@ -221,3 +221,21 @@ def test_scan_freezes_context_into_records(tmp_path):
         assert "volume_ratio" in rec.context
         assert "sma20_dist_pct" in rec.context
         assert "btc_mom_20d_pct" in rec.context          # crypto scans carry the market regime
+
+
+def test_ml_score_roundtrip_and_old_lines_still_read(tmp_path):
+    recs = ledger.record_report(_report(), "run1", market="crypto")
+    recs[0].ml_score = 0.42
+    recs[0].ml_fingerprint = "abcdef1234567890"
+    path = tmp_path / "signals.jsonl"
+    assert ledger.append_records(path, recs) == 1
+    back = ledger.read_records(path)[0]
+    assert back.ml_score == 0.42
+    assert back.ml_fingerprint == "abcdef1234567890"
+
+    # pre-learning-layer lines (no ml_* keys) still read with defaults
+    stripped = json.loads(back.model_dump_json())
+    del stripped["ml_score"], stripped["ml_fingerprint"]
+    path.write_text(json.dumps(stripped) + "\n", encoding="utf-8")
+    old = ledger.read_records(path)[0]
+    assert old.ml_score is None and old.ml_fingerprint == ""

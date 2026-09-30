@@ -35,6 +35,24 @@ body { margin: 0; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; ba
 .chart-card img { width: 100%; border: 1px solid #30363d; border-radius: 8px; background: #0d1117; }
 .chart-card figcaption { font-size: 12px; color: #8b949e; text-align: center; padding-top: 4px; }
 .step-chart { border-left-color: #58a6ff; }
+.step-analysis { border-left-color: #bc8cff; }
+/* AI chart read panel (Phase 7.6 analysis events) */
+.ai-read { width: 100%; margin: 6px 0 4px 36px; padding: 10px 12px; border: 1px solid #30363d;
+  border-left: 3px solid #bc8cff; border-radius: 8px; background: #0d1117; }
+.ai-read-tfs { display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; }
+.ai-tf { display: flex; align-items: baseline; gap: 10px; font-size: 12px; }
+.ai-tf-name { font-family: ui-monospace, monospace; color: #8b949e; min-width: 30px; }
+.ai-tf-trend { font-weight: 600; min-width: 64px; }
+.ai-tf-up .ai-tf-trend { color: #3fb950; }
+.ai-tf-down .ai-tf-trend { color: #f85149; }
+.ai-tf-range .ai-tf-trend { color: #d29922; }
+.ai-tf-note { color: #8b949e; }
+.ai-rationale { margin: 0 0 8px 0; font-size: 13px; line-height: 1.5; color: #e6edf3; }
+.ai-meta { display: flex; flex-wrap: wrap; gap: 12px; font-size: 11.5px; color: #8b949e; }
+.ai-levels b { color: #d29922; font-weight: 600; }
+.ai-conf { color: #bc8cff; }
+.ai-model { font-family: ui-monospace, monospace; }
+.step-chart-img { width: 100%; max-width: 560px; display: block; margin: 6px 0 2px 36px; border: 1px solid #30363d; border-radius: 8px; background: #0d1117; }
 
 .report { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 18px 24px; margin-top: 16px; line-height: 1.55; }
 .report table { border-collapse: collapse; width: 100%; font-size: 13px; }
@@ -153,3 +171,10 @@ body { margin: 0; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; ba
   .auth-row { flex-wrap: wrap; }
   .settings section { padding: 12px 12px; }
 }
+.ai-gen-line { display: flex; gap: 12px; align-items: baseline; font-size: 12px; margin-bottom: 6px; }
+.ai-dir { font-weight: 700; }
+.ai-dir-long { color: #3fb950; }
+.ai-dir-short { color: #f85149; }
+.ai-dir-none { color: #8b949e; }
+.ai-score { color: #d29922; font-weight: 600; }
+.ai-inval { color: #8b949e; }

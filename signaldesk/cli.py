@@ -32,6 +32,9 @@ app.add_typer(paper_app, name="paper")
 trial_app = typer.Typer(help="Pre-register signal-generation changes and judge them (roadmap item 33).")
 app.add_typer(trial_app, name="trial")
 
+learn_app = typer.Typer(help="Meta-label learning layer: train on resolved outcomes, score signals in shadow mode.")
+app.add_typer(learn_app, name="learn")
+
 
 # --------------------------------------------------------------------------
 # tool factories
@@ -663,6 +666,55 @@ def trial_close(
         typer.secho(f"no trial '{trial_id}'", err=True, fg=typer.colors.RED)
         raise typer.Exit(code=1)
     typer.echo(f"closed {closed['id']}: {closed['outcome']}")
+
+
+@learn_app.command("train")
+def learn_train(
+    min_signals: int = typer.Option(30, "--min-signals", min=1,
+                                    help="Refuse to train below this many resolved signals."),
+    min_train: int = typer.Option(20, "--min-train", min=5,
+                                  help="Walk-forward expanding window starts here."),
+    l2: float = typer.Option(1.0, "--l2", min=0.01, help="L2 penalty strength."),
+    json_out: bool = typer.Option(False, "--json"),
+) -> None:
+    """Fit the meta-label model on ledger x outcomes and save learn_model.json."""
+    from signaldesk import learn as learn_mod
+
+    config = Config.from_env()
+    rows, counts = learn_mod.load_dataset(config.data_dir)
+    if len(rows) < min_signals:
+        typer.secho(
+            f"only {counts['labeled']} resolved signal(s) in scope "
+            f"({counts['excluded']} of {counts['ledger']} ledger rows demo/open/missing) — "
+            f"need {min_signals}; run scans or `signaldesk outcomes --backfill` first",
+            err=True, fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+    try:
+        model = learn_mod.train(rows, min_train=min_train, l2=l2)
+    except learn_mod.LearningError as exc:
+        typer.secho(f"training refused: {exc}", err=True, fg=typer.colors.RED)
+        raise typer.Exit(code=1) from exc
+    path = learn_mod.save_model(learn_mod.model_path(config.data_dir), model)
+    if json_out:
+        typer.echo(json.dumps(model, indent=2))
+    else:
+        typer.echo(learn_mod.render_train_text(model))
+        typer.secho(f"\nmodel saved: {path}", dim=True)
+
+
+@learn_app.command("report")
+def learn_report(
+    json_out: bool = typer.Option(False, "--json"),
+) -> None:
+    """Shadow-mode report: does the model's score separate wins from losses?"""
+    from signaldesk import learn as learn_mod
+
+    config = Config.from_env()
+    report = learn_mod.shadow_report(config.data_dir)
+    if json_out:
+        typer.echo(json.dumps(report, indent=2))
+    else:
+        typer.echo(learn_mod.render_report_text(report))
 
 
 @app.command()

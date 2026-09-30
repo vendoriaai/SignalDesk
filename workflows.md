@@ -58,20 +58,34 @@ This document defines the agent's executable workflows step-by-step, derived fro
 14b. **Regime gates** (item 32, trial T2): before a signal is emitted, the candidate must pass the declared gates — price above its 200d SMA, annualized vol <= 150%, 7d gain <= +50%, price <= 25% over SMA20; BTC below its 200d SMA caps the whole crypto book. Gated candidates move to `avoid[]` with the triggering value registered as a derived citation; <200d-history names are disclosed as unevaluated (R4).  *(Reference: SUI institutional staking/CME futures; TAO AI-narrative; AAVE RWA/news; ETF inflow headlines.)*
 
 ### Phase 7 — Scoring & Signal Construction
-15. Score each symbol via `strategy/scoring.py` (versioned preset `trend-momentum-v1`):
+15. Score each symbol on **both sides** via `strategy/scoring.py` — the long
+    preset `trend-momentum-v1` and its declared mirror
+    `trend-momentum-short-v1` (same weights, bearish conditions):
 
-| Component | Weight | Condition (bullish) |
-|---|---|---|
-| Trend stack | 40% | close>SMA20, close>SMA50, EMA9>EMA21 (13.3% each) |
-| Momentum | 25% | MACD hist > 0 (15%); hist increasing vs prior bar (10%) |
-| RSI regime | 15% | 50≤RSI<70 full (15%); RSI 45–50 or 70–75 half; else 0 |
-| Volume/lqi | 10% | volume ≥ 30d avg (10%) |
-| Sentiment adj | 10% | market Fear&Greed neutral→greedy adds up to +10; extreme greed caps signals at HOLD |
+| Component | Weight | Condition (bullish) | Condition (bearish mirror) |
+|---|---|---|---|
+| Trend stack | 40% | close>SMA20, close>SMA50, EMA9>EMA21 (13.3% each) | close<SMA20, close<SMA50, EMA9<EMA21 |
+| Momentum | 25% | MACD hist > 0 (15%); hist increasing vs prior bar (10%) | MACD hist < 0 (15%); hist falling vs prior bar (10%) |
+| RSI regime | 15% | 50≤RSI<70 full (15%); RSI 45–50 or 70–75 half; else 0 | 30<RSI≤50 full (15%); RSI 25–30 or 50–55 half; else 0 |
+| Volume/lqi | 10% | volume ≥ 30d avg (10%) | volume ≥ 30d avg (10%) |
+| Sentiment adj | 10% | market Fear&Greed neutral→greedy adds up to +10; extreme greed caps signals at HOLD | Fear&Greed neutral→fearful adds up to +10; extreme fear (≤20) caps short signals at HOLD |
 
-16. Build candidate trades for symbols with score ≥ 60:
-    - direction = LONG (v1; bearish setups reported as "avoid/short-watch", never auto-signaled)
-    - entry = current close; stop = closest of (entry − 1.5×ATR(14), 20d swing low); TP1 = entry + 2×(entry−stop); TP2 = entry + 3×(entry−stop); R:R reported.
-    - **cost-aware risk floor** (rule R6): the stop is widened if needed so that
+    A missing/NaN SMA or EMA level awards no short trend leg ("cannot judge"
+    scores 0, never bull). RSI ≤ 25 flags the short side overextended (falling
+    knife — R3 mirror) and RSI ≥ 75 flags the long side (R3).
+
+16. Build candidate trades for symbols whose **better side** clears its gates
+    and scores ≥ 60 (one signal per symbol; an exact score tie goes LONG):
+    - direction = the eligible side with the higher score (LONG default). The
+      short side is refused by its mirrored gates exactly as longs are (item
+      32 + mirror): above the 200d SMA, into a falling-knife 7d move (< −50%),
+      extended more than 25% below SMA20, at the same 150% volatility
+      extreme, and — book level — when BTC is above its own 200d SMA the
+      whole crypto short book stands down. Refusals land in the avoid list,
+      cited, prefixed with the refused side.
+    - LONG: entry = current close; stop = closest of (entry − 1.5×ATR(14), 20d swing low); TP1 = entry + 2×(entry−stop); TP2 = entry + 3×(entry−stop).
+    - SHORT (mirror): stop = closest of (entry + 1.5×ATR(14), 20d swing high); TP1 = entry − 2×(stop−entry); TP2 = entry − 3×(stop−entry). The ledger risk unit is |entry − stop| and stays positive; `direction` carries the orientation.
+    - **cost-aware risk floor** (rule R6, both directions): the stop is widened if needed so that
       R ≥ max(0.75×ATR(14, daily), 15× the symbol's assumed round-trip cost).
       Tighter than that and the cost of trading eats the risk unit — at 0.5R of
       cost a 2R target needs a 66% win rate just to break even. The assumed cost
@@ -82,8 +96,11 @@ This document defines the agent's executable workflows step-by-step, derived fro
 
 ### Phase 7.5 — Intraday Entry Refinement (30m/15m/5m/1m)
 
-Applies to the final top signals only; the daily ranking and scoring preset
-are never modified by this phase. For each signal:
+Applies to the final top **LONG** signals only (SHORT signals keep their daily
+plan — the deterministic rules below are written for the long side; the skip
+is disclosed in the report, R4, and SHORTs get the same chart ladder in
+Phase 7.6 without a deterministic refinement). The daily ranking and scoring
+preset are never modified by this phase. For each signal:
 
 a. Fetch intraday OHLCV per entry timeframe (default 30m/15m/5m/1m; windows
    30m→30d, 15m→14d, 5m→5d, 1m→2d — inside the yfinance caps). A missing
@@ -106,14 +123,77 @@ c. Deterministic refinement (LONG-only):
    the plan is flagged `risk_floored` when the floor binds. TP1 = entry + 2R,
    TP2 = entry + 3R on the **refined** risk. Invariant: stop < entry < TP1 <
    TP2 always holds, and cost-in-R stays ≤ 1/15 (~0.07R).
-d. Entry chart per signal (15m price + EMA21 + entry/stop/TP lines) streams
-   to the UI "Charts analyzed" gallery; all levels render in the report's
+d. An entry chart (price + EMA21 + entry/stop/TP lines) for EVERY fetched
+   timeframe — not just the primary — streams to the trace and the UI
+   "Charts analyzed" gallery; all levels render in the report's
    "Entry plans (intraday refinement)" section with their citations.
 
 Roles fall back when a timeframe is missing (bias: 15m→30m→1h→5m→1m;
 structure: 30m→15m→1h→5m; trigger: 5m→1m→15m→30m). Off-switches: Settings
 toggle (`entry_refinement`), `--entry-tf off`, or `entry_timeframes: []` in
 the API request; a custom set via `--entry-tf 30m,15m`.
+
+### Phase 6.5 — AI Signal Generation (the vision LLM decides)
+
+When enabled (Settings `ai_signal_generation`, default on; non-demo; LLM creds
+present), **the vision LLM generates the signals themselves** — the
+deterministic preset steps aside. One vision call per scanned symbol: the
+symbol's 1d + 1h TA charts (P4) plus a data brief (close, 24h/3d/7d/30d change,
+RSI14, MACD histogram + slope, SMA20/50/200 position, ATR14, annualized vol,
+volume vs 30d avg, 20-bar range, Fear & Greed, altcoin season, BTC regime note,
+market-context news). Strict-JSON reply: `direction` (LONG/SHORT/NONE),
+`score` (0-100 conviction, ranked), `rationale`, optional `invalidation`
+(the level that proves the trade wrong — it seeds the stop).
+
+- Signals = the AI's picks with direction ≠ NONE and score ≥ the scan
+  threshold, top 5 by score. The report header and ledger mark them
+  (`ai-vision-v1`, `generator="ai_vision_v1"`, AI weights hash — outcomes stay
+  separable, R7). First real application pre-registers trial
+  `ai-signal-generation-v1` (frozen criteria, min 30 resolved signals).
+- **Policy gates are advisory warnings on this path (operator choice)**: a
+  regime/overextension/extremes violation is shown as a ⚠ confluence line with
+  its citation and the scan discloses it — it does not refuse the AI's pick.
+  The draft stop is still clamped to [max(0.75×ATR(1d), 15× cost), 3×ATR(1d)]
+  and TPs stay 2R/3R (R6); Phase 7.5/7.6 refine as usual afterwards.
+- Symbols the AI passed (NONE or below threshold) land in the avoid list with
+  the AI's rationale ("AI passed: …"), so every exclusion is explained.
+- Fallbacks (R4, disclosed): demo scans and no-key runs use the deterministic
+  engine verbatim (hard gates); a failed per-symbol read skips that symbol;
+  zero usable reads fall back to the deterministic engine for the whole scan.
+- Trace: each decision streams as a 🧠 `P6.5` analysis event (direction, score,
+  rationale, invalidation, model) before the signals appear.
+
+### Phase 7.6 — AI Chart Read (vision entry selection)
+
+Runs after 7.5, before Phase 8 emits the report: the trace shows every chosen
+pair's charts and the AI's read BEFORE the signals appear. For every signal
+(LONG and SHORT):
+
+a. The full chart ladder is rendered and streamed as `chart` events: the 1d
+   and 1h TA charts from Phase 4 plus an entry-style chart per fetched
+   intraday timeframe (30m/15m/5m/1m; SHORTs fetch the same ladder).
+b. One vision-capable LLM call per signal (`agent/vision.py`, LiteLLM, the
+   user's configured provider/model): the ladder is sent as labelled images,
+   daily → 1m, with the direction and draft plan. The model returns strict
+   JSON — per-timeframe trend reads, the chosen entry, an optional stop
+   level, a rationale, a confidence — streamed into the trace as `analysis`
+   (🧠) events before the report.
+c. The AI chooses only the entry level. `scoring.reconcile_ai_entry` keeps
+   the stop geometry deterministic (R6/R7): stop distance = the AI stop's
+   distance clamped into [max(0.75×ATR(1d), 15× round-trip cost), 3×ATR(1d)]
+   (the draft risk unit when no ATR exists); TPs stay 2R/3R. An implausible
+   entry (non-finite or > 3×ATR(1d) from the draft) is rejected and the
+   deterministic plan kept, disclosed (R4). Every asserted number is cited
+   (R1); the read itself is a direct `llm_vision` citation.
+d. Accounting: ledger records carry `entry_mode="ai_chart_v1"`; the first
+   real (non-demo) application pre-registers trial `ai-chart-entry-v1`
+   (criteria frozen at declaration, min 30 resolved signals, judged on the
+   expectancy CI) — until it closes, the read is a declared experiment, not
+   settled policy (R7).
+
+Off-switch: Settings toggle (`ai_chart_entry`, default on). Degradation (R4):
+demo scans skip the read; a missing LLM key, a non-vision model error, or an
+unreadable reply falls back to the deterministic plan with a disclosure.
 
 ### Phase 8 — Critique & Synthesis
 18. Critic checks: every table cell cited? news claims dated? RSI>75 names flagged as overextended rather than signaled (reference case: ENA RSI 72.5 / SUI 68.4 handled as "strong but late momentum")? If gaps → re-run missing phase once.
@@ -174,7 +254,7 @@ weeks, n < 100, or a mostly-censored sample).
 ---
 
 ## WF-2 · Ticker Deep Dive
-Plan → company profile/financials/ratios/estimates/analyst research tools → earnings history/schedule → transcript analysis (v1.1) → peers comparison → news catalysts → one-page cited dossier (bull case / bear case / key levels from sandbox TA). When the technical score clears the threshold, the emitted signal gets the same Phase 7.5 intraday entry refinement as WF-1.
+Plan → company profile/financials/ratios/estimates/analyst research tools → earnings history/schedule → transcript analysis (v1.1) → peers comparison → news catalysts → one-page cited dossier (bull case / bear case / key levels from sandbox TA). When the technical score clears the threshold, the emitted signal gets the same Phase 7.5 intraday entry refinement and Phase 7.6 AI chart read as WF-1.
 
 ## WF-3 · Forex / Metals Scan
 WF-1 with: Alpha Vantage FX daily/intraday adapters; DXY, yields (FRED macro snapshot) and Fed context weighted at 20% in scoring; ATR in pips; session-window note (London/NY) added to signals.
@@ -212,7 +292,9 @@ there is exactly one place where resolution conventions live.
 ## Global Workflow Rules
 - R1 Every numeric claim in any report carries a citation (direct or derived-with-formula).
 - R2 Research before compute: web context phases never run after sandbox numbers are final (prevents narrative back-fitting).
-- R3 Overextended filter: RSI ≥ 75 → cannot be emitted as LONG signal (listed under Avoid/Watch).
+- R3 Overextended filter: RSI ≥ 75 → cannot be emitted as LONG signal; RSI ≤ 25
+  → cannot be emitted as SHORT signal (falling knife, R3 mirror). Either way the
+  symbol is listed under Avoid/Watch with the refused side named.
 - R4 Degradation over failure: any unavailable phase is disclosed in the report header.
 - R5 LLM never invents market numbers: critic rejects any figure not backed by artifact/sandbox output.
 - R6 Cost-aware risk units: every signal's stop is widened, if needed, so R ≥ max(0.75×ATR(14, daily), 15× the assumed round-trip cost); the assumed cost is a cited assumption, cost-in-R and the break-even win rate are printed per signal, and `floored` plans are labelled. A trade whose cost is a large fraction of R is not a trade.

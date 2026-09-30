@@ -168,6 +168,7 @@ def run_deep_dive(req: DeepDiveRequest, tools: DeepDiveToolSet, bus: EventBus, r
 
     # Phase 7.5: intraday entry refinement for the signal --------------------
     entry_charts: dict[str, dict[str, str]] = {}
+    ltf_csvs: dict[str, dict[str, Path]] = {}
     if signal:
         from signaldesk.markets import DEFAULT_ENTRY_TIMEFRAMES
 
@@ -184,7 +185,23 @@ def run_deep_dive(req: DeepDiveRequest, tools: DeepDiveToolSet, bus: EventBus, r
                 atr_daily={symbol: f["atr14"]},
                 cost_pcts={symbol: cost_pct},
                 cost_cite_ids={symbol: cost_cite.id},
+                fetched_out=ltf_csvs,
             )
+
+        # Phase 7.6: AI chart read (vision entry selection) — stop geometry
+        # stays risk-floored (R6); the ledger carries the entry mode (R7).
+        from signaldesk.workflows.entry_refine import maybe_ai_chart_reads
+
+        maybe_ai_chart_reads(
+            [signal], entry_charts, run_dir, bus, registry, disclosures,
+            demo_mode=tools.ohlcv.__class__.__name__.startswith("Demo"),
+            price_cite_ids={symbol: price_cite.id},
+            atr_cite_ids={symbol: atr_cite.id},
+            atr_daily={symbol: f["atr14"]},
+            cost_pcts={symbol: cost_pct},
+            cost_cite_ids={symbol: cost_cite.id},
+            ltf_csvs=ltf_csvs,
+        )
 
     # Fundamentals -----------------------------------------------------------
     fundamentals = FundamentalsSnapshot(name=symbol)

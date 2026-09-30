@@ -5,6 +5,84 @@ All notable changes to SignalDesk are documented here.
 ## [Unreleased]
 
 ### Added
+- **AI signal generation (Phase 6.5) — the vision LLM now generates the ranked
+  signals themselves, from the data and the charts:** one vision call per
+  scanned symbol (daily + 1h TA charts plus a brief of features, sentiment,
+  BTC regime and market-context news) returns direction (LONG/SHORT/NONE), a
+  0-100 conviction score, a one-line rationale and an optional invalidation
+  level. The AI's picks are the signals (top 5 by score at or above the scan
+  threshold); the report and ledger mark the provenance (`ai-vision-v1`,
+  `generator="ai_vision_v1"`, an AI weights hash so outcomes stay separable
+  per R7), and the first real application pre-registers trial
+  `ai-signal-generation-v1` with frozen criteria. **Policy gates become
+  advisory warnings on this path** (operator choice, disclosed per signal as
+  "⚠ policy gate: … — AI proceeded"): a LONG in a bear regime or an
+  overextended chase is emitted with its warning instead of being refused.
+  Draft stops still clamp to [max(0.75×ATR(1d), 15× cost), 3×ATR(1d)] and TPs
+  stay 2R/3R (R6); Phase 7.5/7.6 refinement and the AI entry read run on the
+  AI signals exactly as before. Symbols the AI passed land in the avoid list
+  with its rationale. Demo scans, no-key runs and total AI failure fall back
+  to the deterministic engine verbatim, disclosed (R4). Each decision streams
+  into the trace as a 🧠 P6.5 event before the signals appear. Settings
+  toggle `ai_signal_generation` (default on).
+- **AI chart read (Phase 7.6) — the trace now shows every chosen pair's charts
+  on every timeframe before the signals, and a vision LLM picks the entry:**
+  after the deterministic refinement, each signal (LONG and SHORT) gets its
+  full chart ladder rendered and streamed into the execution trace — the 1d
+  and 1h TA charts plus entry-style charts for 30m/15m/5m/1m — and one
+  vision-capable LLM call per signal (LiteLLM, the configured
+  provider/model) reads the ladder, daily → 1m, returning per-timeframe
+  trend reads, the chosen entry, an optional stop, a rationale and a
+  confidence. The read streams as 🧠 `analysis` trace events (chart events
+  render inline in the UI) before the report emits the signals. The AI
+  chooses only the entry level: the stop distance stays clamped to
+  [max(0.75×ATR(1d), 15× cost), 3×ATR(1d)] and TPs stay 2R/3R (R6) — an
+  implausible entry (> 3×ATR(1d) from the draft) falls back to the
+  deterministic plan, disclosed (R4). Every plan number is cited (R1); the
+  ledger records `entry_mode="ai_chart_v1"` and the first real application
+  pre-registers trial `ai-chart-entry-v1` with frozen criteria (min 30
+  resolved signals, judged on the expectancy CI) per R7. Settings toggle
+  `ai_chart_entry` (default on); demo scans and missing LLM keys degrade to
+  the deterministic plans with a disclosure. Trace chart events now render
+  inline in the UI (alongside the new 🧠 analysis events), and the Charts
+  analyzed gallery carries the full per-pair ladder (1d/1h/30m/15m/5m/1m).
+- **Dual-direction engine (roadmap item 39) — the scan can now emit SHORT
+  signals, not only LONGs:** every symbol is scored on both sides with a
+  declared mirror preset (`trend-momentum-short-v1`: same weights, bearish
+  conditions — below SMAs, MACD fading, RSI 30–50 band, fear-side sentiment)
+  and the better eligible side is emitted, one signal per symbol. Shorts carry
+  mirrored trade plans (stop above entry from 1.5×ATR / 20d swing high, TP1/TP2
+  2R/3R below entry, same cost-aware risk floor), mirrored regime gates
+  (refused above the 200d SMA, into a falling-knife 7d move < −50%, extended
+  > 25% below SMA20, at the same 150% vol extreme; BTC above its own 200d SMA
+  caps the whole crypto short book — the mirror of the item-32 long gate), and
+  the same R3 guard mirrored (RSI ≤ 25 falling knife is never a SHORT). The
+  measurement layer is direction-aware end to end: the triple-barrier resolver
+  mirrors the barriers for shorts (same pessimistic stop-wins-tie rule, MFE/MAE
+  signed favorable-vs-adverse), the ledger risk unit is |entry − stop|, and
+  paper fill/miss slippage was already direction-aware. Deterministic intraday
+  entry refinement (Phase 7.5) stays long-only — SHORT signals keep their
+  daily plan unless the Phase 7.6 AI chart read (below) chooses their entry,
+  and the report discloses which path ran (R4). The weights fingerprint
+  changed (new short-side constants), so post-change ledger rows are traceable
+  as a distinct rule set for A/B against the long-only era. Refused sides land
+  in the avoid list cited and prefixed (`LONG refused: …`, `SHORT refused: …`),
+  so a scan always explains why it went one way and not the other.
+- **Meta-label learning layer (roadmap item 38) — the desk can now learn from
+  its own outcomes, in shadow mode:** `signaldesk learn train` joins the
+  ledger with resolved outcomes into a training set (demo/open rows excluded),
+  fits a small L2 logistic model (numpy only, no new dependency) that predicts
+  P(r_net > 0) from the decision-time features the ledger already freezes
+  (score, entry mode, cost-in-R, chase context), evaluates it walk-forward
+  only (expanding window, per-window imputation and standardization — nothing
+  leaks), and saves a fingerprinted `learn_model.json`. `signaldesk learn
+  report` shows the honest out-of-sample skill (AUC, log-loss vs base rate,
+  expectancy by predicted-probability tercile) plus a clearly flagged
+  in-sample history view. Every scan then stamps `ml_score`/`ml_fingerprint`
+  on its new ledger records — and gates nothing: the score may only filter or
+  size signals after a pre-registered trial closes positive on this evidence
+  (rules R7/R6). Labels are read exactly as resolved by the frozen triple-barrier
+  conventions; a missing or unreadable model degrades to "no score" (R4).
 - **Regime gates (roadmap item 32, pre-registered as trial T2) — longs are
   refused when the trade would be a chase:** signals land in the avoid list,
   with cited trigger values, when any gate fires: price below its 200d SMA;
@@ -115,6 +193,19 @@ All notable changes to SignalDesk are documented here.
   plan; a disclosure states the assumed costs for the run.
 
 ### Changed
+- **Demo market rebuilt: real prices + a bear regime that exercises SHORT
+  signals.** The demo generator's base prices were stale (ETH showed ~11k vs
+  ~2.7k real); every crypto demo series is now calibrated so it ends exactly
+  at the real 2026-09-30 price (majors from live quotes, alts from yfinance;
+  SUI/TAO estimated where DNS blocked the fetch). The demo regime flipped
+  from an all-bull uptrend to a mild bear — BTC drifts below its 200d SMA, so
+  the declared item-32 mirror gate opens the SHORT book and demo scans emit
+  SHORT signals (TAO/BNB/SUI-class setups) with the long book standing down,
+  disclosed per symbol in the avoid list. Demo Fear & Greed moved to 38
+  (fear regime) to match. This makes the demo demonstrate both engine
+  directions across regimes instead of only ever showing LONGs. Tests that
+  assumed the all-bull demo (entry-plan attachment, markdown sections) are
+  direction-aware now.
 - **Risk-unit floor (rule R6).** Stops can no longer sit closer than
   max(0.75×ATR(14, daily), 15× the assumed round-trip cost). Previously the
   intraday refinement rebuilt the stop from the 20-bar intraday swing low —

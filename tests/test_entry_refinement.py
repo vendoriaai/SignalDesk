@@ -24,10 +24,16 @@ def _scan(tmp_path, **kwargs):
 
 
 def test_entry_plans_attached_and_cited(tmp_path):
+    """LONG demo signals get a deterministic entry plan; SHORT signals keep
+    their daily plan in demo (7.5 is long-only, the 7.6 AI read is offline)."""
     report = _scan(tmp_path)
     assert report.signals, "demo scan must produce signals"
     for s in report.signals:
         p = s.entry_plan
+        if s.direction == "SHORT":
+            assert p is None, f"{s.symbol} SHORT must keep its daily plan in demo"
+            assert s.tp2 < s.tp1 < s.entry < s.stop, f"{s.symbol} short geometry broken"
+            continue
         assert p is not None, f"{s.symbol} missing entry plan"
         assert p.mode in ("market", "pullback", "wait")
         assert p.stop < p.entry < p.tp1 < p.tp2, f"{s.symbol} plan geometry broken"
@@ -42,7 +48,7 @@ def test_refined_risk_is_bounded(tmp_path):
     report = _scan(tmp_path)
     for s in report.signals:
         p = s.entry_plan
-        if p.mode in ("market", "pullback"):
+        if p is not None and p.mode in ("market", "pullback"):
             assert 0 < p.risk_refined < p.risk_daily * 3
 
 
@@ -60,7 +66,8 @@ def test_entry_plan_markdown_section(tmp_path):
     from signaldesk.report.render import to_markdown
 
     md = to_markdown(report)
-    assert "## Entry plans (intraday refinement)" in md
+    if any(s.entry_plan is not None for s in report.signals):
+        assert "## Entry plans (intraday refinement)" in md
     for s in report.signals:
         assert s.symbol in md
 
@@ -75,6 +82,9 @@ def test_entry_refinement_disabled(tmp_path):
 def test_custom_entry_timeframes_subset(tmp_path):
     report = _scan(tmp_path, entry_timeframes=["15m"])
     for s in report.signals:
+        if s.direction == "SHORT":
+            assert s.entry_plan is None   # 7.5 is long-only; demo has no AI read
+            continue
         assert s.entry_plan is not None
         assert set(s.entry_plan.timeframes) <= {"15m"}
 
@@ -92,7 +102,9 @@ def test_missing_ltf_degrades_with_disclosure(tmp_path):
                           tools, EventBus(), tmp_path)
     report = run.report
     assert all(s.entry_plan is None for s in report.signals)
-    assert any("entry refinement" in d for d in report.disclosures)
+    # the demo bear market emits SHORTs: their ladder failures disclose too
+    assert any("entry refinement" in d or "no 15m bars" in d or "no 30m bars" in d
+               for d in report.disclosures), report.disclosures
     assert report.citation_coverage == 1.0
 
 

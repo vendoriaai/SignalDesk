@@ -35,6 +35,13 @@ class EntryPlan(BaseModel):
     cost_pct: float = 0.0            # assumed round-trip cost, % of notional
     cost_in_r: float = 0.0           # that cost expressed in R units
     risk_floored: bool = False       # the risk floor widened the refined stop
+    # AI chart read (Phase 7.6): the vision model chose the entry level; the
+    # stop distance and TPs stay risk-floored/deterministic (scoring.reconcile_ai_entry).
+    ai_entry: bool = False
+    ai_model: str = ""               # LiteLLM model id that produced the read
+    ai_rationale: str = ""
+    ai_confidence: float | None = None
+    ai_reads: dict[str, dict[str, str]] = {}   # tf -> {trend, note}
 
 
 class SignalSizing(BaseModel):
@@ -64,6 +71,7 @@ class Signal(BaseModel):
     cost_pct: float = 0.0                # assumed round-trip cost, % of notional
     cost_in_r: float = 0.0               # daily-plan cost-to-risk ratio
     sizing: SignalSizing | None = None   # recommended account sizing (item 30)
+    ai_generated: bool = False           # Phase 6.5: the vision LLM decided this signal
 
 
 class AvoidEntry(BaseModel):
@@ -91,6 +99,7 @@ class ScanReport(BaseModel):
     disclosures: list[str] = []
     citations: dict[str, Citation] = {}
     charts: dict[str, dict[str, str]] = {}  # symbol -> {timeframe: chart PNG path} (run-relative)
+    generator_model: str = ""               # Phase 6.5: vision model that generated the signals ("" = deterministic)
     disclaimer: str = DISCLAIMER
 
     @computed_field  # serialized into report.json for the UI and the API

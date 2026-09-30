@@ -20,19 +20,26 @@ from .search import SearchHit
 _DAYS = 380  # enough history for 52w ranges and all rolling windows
 
 # symbol -> base price, daily drift, daily sigma, cycle amplitude, cycle period, base volume
+# Bases are CALIBRATED so the deterministic 380-day series ends at the real
+# 2026-09-30 price (base x the seeded path multiplier = today's market price —
+# BTC/ETH/BNB/SOL/XRP from live quotes, alts from yfinance where DNS allowed).
+# The regime is a mild BEAR: BTC drifts below its 200d SMA so the
+# dual-direction engine opens the SHORT book (the long book stands down,
+# disclosed) — demo scans exercise SHORT signals the same way live bull scans
+# exercise LONGs.
 _DEMO_MARKET: dict[str, tuple[float, float, float, float, int, float]] = {
-    "BTC": (112_000.0, 0.0012, 0.018, 0.004, 9, 2.1e9),
-    "ETH": (4_400.0, 0.0008, 0.022, 0.005, 8, 1.2e9),
-    "SOL": (205.0, 0.0010, 0.025, 0.005, 8, 4.5e8),
-    "XRP": (2.90, 0.0030, 0.020, 0.004, 9, 3.8e8),
-    "BNB": (950.0, 0.0005, 0.015, 0.004, 10, 2.6e8),
-    "SUI": (3.60, 0.0040, 0.020, 0.003, 7, 1.9e8),
-    "TAO": (320.0, 0.0025, 0.030, 0.006, 8, 9.0e7),
-    "AAVE": (300.0, 0.0018, 0.025, 0.005, 8, 1.1e8),
-    "ENA": (0.62, 0.0300, 0.010, 0.001, 6, 2.2e8),  # parabolic demo runner
-    "DOGE": (0.24, -0.0005, 0.030, 0.006, 9, 1.5e8),
-    "AVAX": (28.0, 0.0002, 0.028, 0.005, 9, 1.2e8),
-    "LINK": (22.0, 0.0012, 0.026, 0.005, 8, 1.0e8),
+    "BTC": (77_896.968, -0.0002, 0.018, 0.004, 9, 2.1e9),
+    "ETH": (2_026.477, -0.0009, 0.022, 0.005, 8, 1.2e9),
+    "SOL": (118.671, -0.0008, 0.025, 0.005, 8, 4.5e8),
+    "XRP": (0.96767, 0.0006, 0.020, 0.004, 9, 3.8e8),  # mild uptrend -> long, book-capped
+    "BNB": (500.512, -0.0004, 0.015, 0.004, 10, 2.6e8),
+    "SUI": (2.7562, -0.0011, 0.020, 0.003, 7, 1.9e8),
+    "TAO": (54.726, 0.0007, 0.030, 0.006, 8, 9.0e7),
+    "AAVE": (383.787, -0.0009, 0.025, 0.005, 8, 1.1e8),
+    "ENA": (0.000134, 0.0200, 0.010, 0.001, 6, 2.2e8),  # parabolic demo runner (long-refused)
+    "DOGE": (0.066781, -0.0010, 0.030, 0.006, 9, 1.5e8),
+    "AVAX": (15.2967, -0.0007, 0.028, 0.005, 9, 1.2e8),
+    "LINK": (13.5407, -0.0006, 0.026, 0.005, 8, 1.0e8),
 }
 
 # forex/metals demo series (no volume — spot FX)
@@ -249,10 +256,10 @@ class DemoFearGreedTool(_DemoBase):
     description = "Demo Fear & Greed reading."
 
     def run(self) -> ToolResult:
-        frame = pd.DataFrame([{"index": "fear_greed", "value": 58, "regime": "greed"}])
+        frame = pd.DataFrame([{"index": "fear_greed", "value": 38, "regime": "fear"}])
         path = self.artifacts_dir / "fear_greed.csv"
         frame.to_csv(path, index=False)
-        return ToolResult(csv_files=[path], summary="Fear & Greed: 58 (greed)", sources=[self._source()])
+        return ToolResult(csv_files=[path], summary="Fear & Greed: 38 (fear)", sources=[self._source()])
 
 
 class DemoAltSeasonTool(_DemoBase):

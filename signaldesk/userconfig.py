@@ -63,6 +63,10 @@ class Settings:
         "llm_model": "",          # optional override, e.g. "openrouter/anthropic/claude-sonnet-4.5"
         "theme": "dark",
         "entry_refinement": True,  # Phase 7.5: intraday (30m/15m/5m/1m) entry plans
+        "ai_chart_entry": True,    # Phase 7.6: vision LLM reads the 1d->1m chart ladder
+                                   # and picks the entry (stop geometry stays risk-floored)
+        "ai_signal_generation": True,  # Phase 6.5: the vision LLM generates the signals
+                                       # themselves from data + charts (gates warn, not veto)
         "supabase_configured": False,
         "onboarding_done": False,
         "update_check_done_today": "",

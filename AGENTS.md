@@ -91,7 +91,8 @@ durable rules beyond what the docs below state.
 - `prd.md` — product spec (assumptions, FR/NFR, milestones)
 - `tad.md` — architecture of record; module contracts (incl. §3.8 measurement layer)
 - `workflows.md` — agent workflow specs (WF-1..WF-5 shipped; WF-5 through roadmap item 28); global rules R1–R7
-- `roadmap.md` — phase plan; current position: Phase 5 item 28 done (WF-5 remainder, 2026-09-28), items 29–37 next
+- `roadmap.md` — phase plan; current position: Phase 5, items 28–30, 32, 33,
+  38 and 39 shipped (through 2026-09-29); items 31, 34–37 next
 - `data-model.sql` — Supabase schema + RLS (must be applied to the hosted project before /api/sync works)
 - `update-manifest.json` — current-release manifest (bump on every release; powers /api/update-check)
 - `logo.svg` / `logo.ico` — brand mark (indigo tile, white signal wave + node dot);
@@ -105,7 +106,10 @@ durable rules beyond what the docs below state.
   (256 px mark used by the Linux AppImage/.deb); installers are built per-OS by CI
 - `.github/workflows/build-installers.yml` — tag-triggered win/mac/linux build + release
 - `evals/cases.json` — 30-case planner/workflow corpus (runner: `signaldesk/evals/runner.py`)
-- `signaldesk/` — Python package: `markets.py`, `agent/` (events, planner),
+- `signaldesk/` — Python package: `markets.py`, `agent/` (events, planner,
+  `vision.py` — Phase 7.6 AI chart read (1d→1m ladder per signal) and Phase
+  6.5 signal generation (direction/score/rationale per scanned symbol),
+  strict-JSON, None on any failure),
   `tools/` (read-only adapters; `extract.py` fetches an article's opening text
   for news claims (Tavily extract, direct-fetch fallback, snippet fallback;
   demo scans skip it); `yfinance_tools.py` normalizes empty/odd Yahoo
@@ -116,14 +120,34 @@ durable rules beyond what the docs below state.
   pinned PYTHONPATH so a stale editable install can't break them; per-call
   timeouts, scan chart pass 180 s),
   `citations/`, `analysis/` (indicators + charts incl. entry-level charts),
-  `strategy/` (presets, trade plans, sizing (item 30: inverse-volatility account risk, cluster cap, advice-only), `MIN_RISK_ATR_MULT`/`MIN_RISK_COST_MULT`
-  risk floor, Phase 7.5 ATR-only entry refinement),
-  `workflows/` (market_scan, deep_dive, entry_refine), `report/`,
+  `strategy/` (long + mirrored short presets (`trend-momentum-v1` /
+  `trend-momentum-short-v1` — dual-direction, item 39), trade plans incl.
+  short geometry, sizing (item 30: inverse-volatility account risk, cluster
+  cap, advice-only), `MIN_RISK_ATR_MULT`/`MIN_RISK_COST_MULT`
+  risk floor, Phase 7.5 ATR-only entry refinement (long-only; shorts keep
+  their daily plan unless the Phase 7.6 AI chart read chooses their entry),
+  `reconcile_ai_entry` (7.6: AI picks the entry level, stop distance clamped
+  to [max(0.75×ATR(1d), 15× cost), 3×ATR(1d)], TPs 2R/3R), regime gates
+  (item 32) mirrored for shorts),
+  `workflows/` (market_scan — dual-side scoring/gating with the Phase 6.5 AI
+  signal-generation path on top: the vision LLM decides selection/direction/
+  score per symbol, policy gates become advisory warnings (operator choice),
+  deterministic engine stays as demo/no-key/total-failure fallback, ledger
+  records carry `generator`/`generator_model` + AI weights hash, first real
+  application pre-registers trial `ai-signal-generation-v1`, Settings toggle
+  `ai_signal_generation`; deep_dive; entry_refine — Phase 7.5 refinement +
+  Phase 7.6 AI chart read: every chosen pair's full chart ladder
+  (1d/1h/30m/15m/5m/1m) renders and streams into the trace before the
+  signals; the read streams as `analysis` events, ledger records carry
+  `entry_mode="ai_chart_v1"`, first real application pre-registers trial
+  `ai-chart-entry-v1`; Settings toggle `ai_chart_entry`), `report/`,
   `costs.py` (round-trip cost assumptions + cost-in-R + break-even win rate),
   `ledger.py` (append-only `signals.jsonl`: actionable levels, snapshot hash,
-  weights fingerprint, demo flag; `backfill()` from past reports),
-  `outcomes.py` (triple-barrier resolver; declared conventions in the module
-  docstring), `metrics.py` (expectancy/CI/hit-rate/profit-factor/breakdowns),
+  weights fingerprint, demo flag; risk unit is |entry − stop|; `backfill()`
+  from past reports),
+  `outcomes.py` (triple-barrier resolver, direction-aware — short barriers
+  mirror longs, same stop-wins-tie pessimism; declared conventions in the
+  module docstring), `metrics.py` (expectancy/CI/hit-rate/profit-factor/breakdowns),
   `resolver.py` (the single WF-5 resolution pipeline shared by CLI, API and
   scheduler), `scheduler.py` (server daily-resolution loop; one pass per
   local day, hourly retry, `SIGNALDESK_SCHEDULER=0` off-switch),
@@ -140,6 +164,11 @@ durable rules beyond what the docs below state.
   `trials.py` (trial log, item 33: pre-registered rule changes in
   `trials.jsonl` via `signaldesk trial add|list|close`; criteria frozen at
   declaration),
+  `learn.py` (meta-label learning layer, item 38: joins ledger x outcomes into
+  a training set, fits a numpy L2 logistic model on decision-time features,
+  evaluates walk-forward only, saves fingerprinted `learn_model.json`; scans
+  stamp `ml_score`/`ml_fingerprint` on new ledger records in shadow mode —
+  the score gates/sizes nothing until a trial closes positive, R7),
   `watchlists.py` (local JSON store), `store.py` (SQLite/SQLModel cache),
   `userconfig.py` (keychain secrets: LLM incl. OpenRouter, search, data, Supabase tokens),
   `sync.py` (Supabase REST, consent-gated), `api.py` (FastAPI + WS + chart
@@ -147,13 +176,17 @@ durable rules beyond what the docs below state.
   /api/outcomes, /api/outcomes/resolve, /api/paper/{id}/fill|miss),
   `desktop.py` (pywebview shell),
   `updates.py` (update manifest check; manual download in v1), `cli.py`
-- `ui/` — React/Vite frontend (chat with live trace incl. chart events +
-  "Charts analyzed" gallery; history view replays the persisted trace and the
-  same gallery via `/api/runs/{id}`; Outcomes stats dashboard reads cached
-  resolutions and logs paper fill/miss from open signal rows; build output
-  in `signaldesk/ui/dist`,
+- `ui/` — React/Vite frontend (chat with live trace incl. inline chart-event
+  images + 🧠 analysis events carrying the full AI response — per-timeframe
+  reads, rationale, confidence, model — rendered as a panel + "Charts
+  analyzed" gallery; history view
+  replays the persisted trace and the same gallery via `/api/runs/{id}` and
+  polls running runs every 1.5 s so their trace streams live before the
+  report exists;
+  Outcomes stats dashboard reads cached resolutions and logs paper fill/miss
+  from open signal rows; build output in `signaldesk/ui/dist`,
   served by api.py). The universe audit is CLI-only for now (Phase 5 item 29).
-- `tests/` — pytest suite (181 tests); new modules must add coverage here
+- `tests/` — pytest suite (302 tests); new modules must add coverage here
 
 Root-level rules: keep every report figure cited (R1), read-only tools only, degrade
 with disclosure instead of failing (R4), no "signals = prediction" wording anywhere,

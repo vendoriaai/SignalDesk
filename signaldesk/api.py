@@ -118,6 +118,8 @@ class SettingsIn(BaseModel):
     llm_model: str | None = None      # "" resets to provider default
     theme: str | None = None
     entry_refinement: bool | None = None  # intraday (30m/15m/5m/1m) entry plans
+    ai_chart_entry: bool | None = None    # Phase 7.6: vision LLM picks the entry
+    ai_signal_generation: bool | None = None  # Phase 6.5: vision LLM generates the signals
     secrets: dict[str, str] = {}  # SECRET_KEYS -> value; "" clears
 
 
@@ -566,6 +568,10 @@ def create_app(config: Config | None = None) -> FastAPI:
             updates["theme"] = body.theme
         if body.entry_refinement is not None:
             updates["entry_refinement"] = body.entry_refinement
+        if body.ai_chart_entry is not None:
+            updates["ai_chart_entry"] = body.ai_chart_entry
+        if body.ai_signal_generation is not None:
+            updates["ai_signal_generation"] = body.ai_signal_generation
         if updates:
             settings.set(**updates)
         for key, value in body.secrets.items():

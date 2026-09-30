@@ -2,8 +2,18 @@
 
 Versioned so the community can fork and compare strategies (TAD D3).
 `trend-momentum-v1` weights: trend 40, momentum 25, RSI regime 15,
-volume 10, sentiment adjustment 10. LONG-only; RSI>=75 excluded (R3);
+volume 10, sentiment adjustment 10. LONG side: RSI>=75 excluded (R3);
 >=80 Fear & Greed caps everything at HOLD.
+
+The SHORT side is the declared mirror (`trend-momentum-short-v1`): the same
+weights score the bearish case — below SMAs, MACD histogram negative and
+falling, RSI in the 30-50 band. Mirrors of the long guards: RSI<=25 is a
+falling knife and never a SHORT (R3 mirror), Fear & Greed <= 20 (extreme
+fear) caps short signals at HOLD, and the regime gates mirror (shorts
+refused above the 200d SMA, into a falling-knife 7d move, extended below
+SMA20, and at the same volatility extreme). BTC above its own 200d SMA caps
+the whole crypto short book — the mirror of the item-32 long gate: never
+fight the book trend.
 
 Risk policy (workflows.md Phase 7/7.5): a stop may not be tighter than
 `MIN_RISK_ATR_MULT x ATR(14, daily)` and must leave at least
@@ -19,10 +29,13 @@ import math
 from dataclasses import dataclass, field
 
 PRESET_NAME = "trend-momentum-v1"
+PRESET_NAME_SHORT = "trend-momentum-short-v1"
 
 SCORE_THRESHOLD = 60.0
 RSI_OVEREXTENDED = 75.0
 FNG_EXTREME_GREED = 80.0
+SHORT_RSI_OVEREXTENDED = 25.0  # RSI <= 25: falling knife — never a SHORT (R3 mirror)
+FNG_EXTREME_FEAR = 20.0        # Fear & Greed <= 20 caps SHORT signals at HOLD
 
 # --- trend-momentum-v1 weights (named so the ledger can fingerprint them) -----
 TREND_LEG = 13.3333          # close>SMA20, close>SMA50, EMA9>EMA21 (3 x 13.3333)
@@ -59,6 +72,13 @@ class SymbolFeatures:
     macd_hist_prev: float
     volume: float
     volume_avg30: float
+    # actual levels for the short-side legs: a short trend point needs the
+    # SMA to exist and sit above price — a NaN SMA is "cannot judge", never
+    # an awarded leg (mirrors the regime-gate missing-data stance)
+    sma20: float | None = None
+    sma50: float | None = None
+    ema9: float | None = None
+    ema21: float | None = None
 
 
 @dataclass
@@ -177,6 +197,120 @@ def usd_leg(symbol: str) -> str:
     return "base" if s.startswith("USD") else "quote"
 
 
+# --- short side (trend-momentum-short-v1, the declared mirror) ------------------
+# Same weights as the long preset, mirrored conditions. A missing/NaN level
+# never awards a short trend leg ("cannot judge" scores 0, never bull).
+
+def _short_trend_momentum(f: SymbolFeatures) -> tuple[float, float, list[str]]:
+    """Mirrored trend + momentum legs shared by the crypto and FX short presets."""
+    trend = 0.0
+    reasons: list[str] = []
+    if f.sma20 is not None and math.isfinite(f.sma20) and f.close < f.sma20:
+        trend += TREND_LEG
+        reasons.append("below SMA20")
+    if f.sma50 is not None and math.isfinite(f.sma50) and f.close < f.sma50:
+        trend += TREND_LEG
+        reasons.append("below SMA50")
+    if f.ema9 is not None and f.ema21 is not None \
+            and math.isfinite(f.ema9) and math.isfinite(f.ema21) and f.ema9 < f.ema21:
+        trend += TREND_LEG
+        reasons.append("EMA9 < EMA21")
+
+    momentum = 0.0
+    if f.macd_hist < 0:
+        momentum += MOMENTUM_BASE
+        reasons.append("MACD histogram negative")
+    if f.macd_hist < f.macd_hist_prev:
+        momentum += MOMENTUM_RISING
+        reasons.append("MACD histogram falling")
+    return trend, momentum, reasons
+
+
+def score_short_symbol(f: SymbolFeatures, fear_greed: float | None) -> ScoreBreakdown:
+    """Mirrored crypto preset: the trend-momentum-v1 weights score the bearish
+    case. RSI <= 25 flags `overextended` (falling knife — R3 mirror); Fear &
+    Greed <= 20 (extreme fear) caps everything at HOLD."""
+    trend, momentum, reasons = _short_trend_momentum(f)
+    return _assemble_short(f, trend, momentum, fear_greed, reasons,
+                           volume_weight=VOLUME_WEIGHT)
+
+
+def score_fx_symbol_short(f: SymbolFeatures, macro: MacroInputs, usd_leg: str) -> ScoreBreakdown:
+    """Mirrored fx-momentum-v1 (WF-3): bearish trend/momentum legs; the macro
+    legs flip with the direction — a falling DXY favors shorts on USD-base
+    pairs, a rising DXY favors shorts on USD-quote pairs and metals."""
+    trend, momentum, reasons = _short_trend_momentum(f)
+
+    macro_score = 0.0
+    if macro.dxy_chg_30d_pct is not None:
+        favorable = macro.dxy_chg_30d_pct < 0 if usd_leg == "base" else macro.dxy_chg_30d_pct > 0
+        if abs(macro.dxy_chg_30d_pct) >= 0.5:  # ignore noise
+            if favorable:
+                macro_score += 10.0
+                reasons.append(f"DXY 30d {macro.dxy_chg_30d_pct:+.1f}% supports the short ({usd_leg} leg)")
+        else:
+            macro_score += 5.0
+            reasons.append("DXY flat (neutral)")
+    if macro.us10y_chg_30d_bp is not None:
+        # Mirror of the long rule: for a short, rising yields are the tailwind
+        # on metals and USD-quote pairs, falling yields on USD-base pairs.
+        if usd_leg == "metal":
+            favorable = macro.us10y_chg_30d_bp > 0
+        else:
+            favorable = macro.us10y_chg_30d_bp < 0 if usd_leg == "base" else macro.us10y_chg_30d_bp > 0
+        if abs(macro.us10y_chg_30d_bp) >= 10:
+            if favorable:
+                macro_score += 10.0
+                reasons.append(f"US10Y 30d {macro.us10y_chg_30d_bp:+.0f} bp favorable for the short")
+        else:
+            macro_score += 5.0
+            reasons.append("US10Y flat (neutral)")
+
+    bd = _assemble_short(f, trend, momentum, None, reasons, volume_weight=0.0)
+    bd.macro = round(macro_score, 2)
+    bd.total = round(min(100.0, bd.trend + bd.momentum + bd.rsi_regime + bd.macro), 2)
+    return bd
+
+
+def _assemble_short(f: SymbolFeatures, trend: float, momentum: float,
+                    fear_greed: float | None, reasons: list[str],
+                    volume_weight: float) -> ScoreBreakdown:
+    r = f.rsi14
+    if 30 < r <= 50:
+        rsi_score = RSI_FULL
+        reasons.append(f"RSI {r:.1f} in 30-50 band")
+    elif 25 < r <= 30 or 50 < r <= 55:
+        rsi_score = RSI_HALF
+        reasons.append(f"RSI {r:.1f} borderline")
+    else:
+        rsi_score = 0.0
+
+    volume = 0.0
+    if volume_weight > 0 and f.volume_avg30 > 0 and f.volume >= f.volume_avg30:
+        volume = volume_weight
+        reasons.append("volume >= 30d average")
+
+    sentiment = 0.0
+    hold_capped = False
+    if fear_greed is not None:
+        if fear_greed <= FNG_EXTREME_FEAR:
+            hold_capped = True
+        elif fear_greed <= 45:
+            sentiment = SENTIMENT_GREED
+            reasons.append(f"Fear & Greed {fear_greed:.0f} (fear regime favors shorts)")
+        elif fear_greed < 55:
+            sentiment = SENTIMENT_NEUTRAL
+            reasons.append(f"Fear & Greed {fear_greed:.0f} (neutral)")
+
+    overextended = r <= SHORT_RSI_OVEREXTENDED
+    total = round(min(100.0, trend + momentum + rsi_score + volume + sentiment), 2)
+    return ScoreBreakdown(
+        total=total, trend=round(trend, 2), momentum=momentum, rsi_regime=rsi_score,
+        volume=volume, sentiment=sentiment, reasons=reasons,
+        overextended=overextended, hold_capped=hold_capped,
+    )
+
+
 def _feat_val(feat, key: str) -> float | None:
     v = feat.get(key) if hasattr(feat, "get") else getattr(feat, key, None)
     try:
@@ -246,6 +380,55 @@ def market_regime_below_trend(btc_feat) -> bool:
     return close is not None and sma200 is not None and sma200 > 0 and close < sma200
 
 
+def regime_gate_short(feat) -> RegimeVerdict:
+    """Why a symbol fails the mirrored regime gates for a SHORT, or a passing
+    verdict. Same declared thresholds as `regime_gate`, mirrored: shorts are
+    refused at the same volatility extreme (squeeze risk), into a falling-knife
+    7d move, when extended below SMA20, and above the 200d SMA. NaN/missing
+    values mean "cannot judge" and never gate on their own (R4)."""
+    close = _feat_val(feat, "close")
+    vol_ann = _feat_val(feat, "vol_ann")
+    if vol_ann is not None and vol_ann > REGIME_VOL_EXTREME_ANN_PCT:
+        return RegimeVerdict(
+            reason=(f"annualized volatility {vol_ann:.0f}% exceeds the "
+                    f"{REGIME_VOL_EXTREME_ANN_PCT:.0f}% extremes gate — "
+                    "mania/panic regime, shorts refused (squeeze risk)"),
+            value=vol_ann, column="vol_ann",
+            formula="annualized vol = stdev(20d returns) x sqrt(365) x 100")
+    ret_7d = _feat_val(feat, "ret_7d")
+    if ret_7d is not None and ret_7d < -REGIME_MAX_7D_GAIN_PCT:
+        return RegimeVerdict(
+            reason=(f"7d return {ret_7d:.0f}% breaches the mirrored "
+                    f"{REGIME_MAX_7D_GAIN_PCT:.0f}% falling-knife gate — "
+                    "shorting it is catching the knife"),
+            value=ret_7d, column="ret_7d", formula="(close / close[-7d] - 1) x 100")
+    sma20 = _feat_val(feat, "sma20")
+    if close is not None and sma20 is not None and sma20 > 0:
+        dist = (close / sma20 - 1.0) * 100.0
+        if dist < -REGIME_MAX_SMA20_DIST_PCT:
+            return RegimeVerdict(
+                reason=(f"price {dist:.0f}% below SMA20 breaches the mirrored "
+                        f"{REGIME_MAX_SMA20_DIST_PCT:.0f}% extension gate — "
+                        "extended down, wait for the mean"),
+                value=dist, column="sma20_dist_pct",
+                formula="(close / SMA20 - 1) x 100")
+    sma200 = _feat_val(feat, "sma200")
+    if close is not None and sma200 is not None and sma200 > 0 and close > sma200:
+        return RegimeVerdict(
+            reason="price above its 200d SMA — trend gate refuses the short",
+            value=close / sma200, column="close_over_sma200",
+            formula="close / SMA200 (> 1 refuses the short)")
+    return RegimeVerdict()
+
+
+def market_regime_above_trend(btc_feat) -> bool:
+    """True when BTC's own 200d trend is up — caps the whole crypto short book
+    (declared mirror of the item-32 long gate: never fight the book trend)."""
+    close = _feat_val(btc_feat, "close")
+    sma200 = _feat_val(btc_feat, "sma200")
+    return close is not None and sma200 is not None and sma200 > 0 and close > sma200
+
+
 def _assemble(f: SymbolFeatures, trend: float, momentum: float,
               fear_greed: float | None, reasons: list[str], volume_weight: float) -> ScoreBreakdown:
     r = f.rsi14
@@ -310,6 +493,110 @@ def min_risk_distance(entry: float, atr_daily: float | None,
     return floor
 
 
+def reconcile_ai_entry(daily: TradePlan, *, direction: str, ai_entry: float,
+                       ai_stop: float | None, atr_daily: float | None,
+                       cost_pct: float | None, mode: str = "market",
+                       note: str = "") -> EntryPlan | None:
+    """Fold an AI chart-read entry into a risk-floored plan (Phase 7.6).
+
+    The vision read chooses only the entry level; the stop geometry stays
+    deterministic (R6/R7): stop distance is the AI stop's distance when usable,
+    clamped into [min_risk_distance, 3 x ATR(1d)] (the draft plan's risk is the
+    fallback when no ATR is available); TPs stay 2R/3R on the final risk.
+    `direction` mirrors everything for SHORTs. Returns None when the AI entry
+    is implausible (non-finite, <= 0, or farther than 3 x ATR(1d) from the
+    draft entry) so the caller keeps the deterministic plan and discloses.
+    """
+    ref = daily.entry
+    if not _finite(ref) or ref <= 0:
+        return None
+    if not _finite(ai_entry) or ai_entry <= 0:
+        return None
+    max_reach = 3.0 * atr_daily if (_finite(atr_daily) and atr_daily > 0) else None
+    if max_reach is not None and abs(ai_entry - ref) > max_reach:
+        return None
+
+    floor = min_risk_distance(ai_entry, atr_daily, cost_pct)
+    if direction == "SHORT":
+        dist = (ai_stop - ai_entry) if (_finite(ai_stop) and ai_stop > ai_entry) else 0.0
+    else:
+        dist = (ai_entry - ai_stop) if (_finite(ai_stop) and ai_stop < ai_entry) else 0.0
+    cap = (3.0 * atr_daily if max_reach is not None else 0.0)
+    if cap > 0:
+        dist = min(dist, cap)
+    dist = max(dist, floor)
+    if dist <= 0:
+        dist = abs(daily.entry - daily.stop)   # last resort: the draft risk unit
+    if not math.isfinite(dist) or dist <= 0:
+        return None
+
+    floored = floor > 0 and dist <= floor + 1e-12 and (
+        (direction == "SHORT" and (ai_stop or 0) - ai_entry < floor)
+        or (direction != "SHORT" and ai_entry - (ai_stop or ai_entry) < floor))
+    if direction == "SHORT":
+        stop = ai_entry + dist
+        tp1, tp2 = ai_entry - 2 * dist, ai_entry - 3 * dist
+    else:
+        stop = ai_entry - dist
+        tp1, tp2 = ai_entry + 2 * dist, ai_entry + 3 * dist
+
+    full_note = "AI chart read: entry chosen from the 1d->1m chart ladder"
+    if note:
+        full_note += f"; {note}"
+    if floored:
+        full_note += (f"; stop held at the risk floor max({MIN_RISK_ATR_MULT:g}xATR(1d), "
+                      f"{MIN_RISK_COST_MULT:g}x round-trip cost)")
+    risk_daily = abs(daily.entry - daily.stop)
+    return EntryPlan(mode or "market", ai_entry, stop, tp1, tp2,
+                     risk_daily, dist, full_note, {}, {}, floored=floored)
+
+
+def ai_draft_plan(close: float, atr: float, *, direction: str,
+                  invalidation: float | None = None,
+                  cost_pct: float | None = None) -> TradePlan:
+    """Phase 6.5 draft plan for an AI-generated signal.
+
+    entry = current close; stop = the AI's invalidation level when it sits on
+    the sane side of the entry, else the 1.5xATR structure stop; the stop
+    distance is clamped into [risk floor, 3xATR] exactly like
+    reconcile_ai_entry, so an AI pick can never be born with a cost-to-risk
+    ratio that swamps the R multiple (R6). TPs stay 2R/3R (direction-aware).
+    """
+    if not _finite(close) or close <= 0:
+        return TradePlan(close, close * (0.99 if direction != "SHORT" else 1.01),
+                         close, close, floored=False)
+    entry = float(close)
+    atr_ok = _finite(atr) and atr > 0
+    floor = min_risk_distance(entry, atr if atr_ok else None, cost_pct)
+    cap = 3.0 * atr if atr_ok else 0.0
+    if direction == "SHORT":
+        dist = (invalidation - entry) if (_finite(invalidation) and invalidation > entry) else 0.0
+        if dist <= 0 and atr_ok:
+            dist = STOP_ATR_MULT * atr
+        if cap > 0:
+            dist = min(dist, cap)
+        raw_dist = dist
+        dist = max(dist, floor)
+        if dist <= 0:
+            dist = entry * 0.01
+        stop = entry + dist
+        tp1, tp2 = entry - 2 * dist, entry - 3 * dist
+    else:
+        dist = (entry - invalidation) if (_finite(invalidation) and invalidation < entry) else 0.0
+        if dist <= 0 and atr_ok:
+            dist = STOP_ATR_MULT * atr
+        if cap > 0:
+            dist = min(dist, cap)
+        raw_dist = dist
+        dist = max(dist, floor)
+        if dist <= 0:
+            dist = entry * 0.01
+        stop = entry - dist
+        tp1, tp2 = entry + 2 * dist, entry + 3 * dist
+    floored = floor > 0 and raw_dist < floor - 1e-12
+    return TradePlan(entry=entry, stop=stop, tp1=tp1, tp2=tp2, floored=floored)
+
+
 def build_trade_plan(entry: float, atr: float, swing_low: float,
                      *, cost_pct: float | None = None) -> TradePlan:
     """stop = closest of (entry - 1.5*ATR, 20d swing low); TP1=+2R, TP2=+3R.
@@ -326,6 +613,24 @@ def build_trade_plan(entry: float, atr: float, swing_low: float,
     stop = min(stop, entry * (1 - 1e-9))  # never at-or-above entry
     risk = entry - stop
     return TradePlan(entry=entry, stop=stop, tp1=entry + 2 * risk, tp2=entry + 3 * risk,
+                     floored=floored)
+
+
+def build_short_trade_plan(entry: float, atr: float, swing_high: float,
+                           *, cost_pct: float | None = None) -> TradePlan:
+    """Declared mirror of `build_trade_plan`: stop = closest of
+    (entry + 1.5*ATR, 20d swing high); TP1/TP2 sit 2R/3R BELOW entry.
+    The risk floor (`min_risk_distance`) applies identically: the stop may not
+    sit closer than max(0.75 x ATR(1d), 15 x round-trip cost)."""
+    candidates = [entry + 1.5 * atr, swing_high]
+    stop = min(candidates, key=lambda s: abs(entry - s))
+    floor = min_risk_distance(entry, atr, cost_pct)
+    floored = floor > 0 and (stop - entry) < floor
+    if floored:
+        stop = entry + floor
+    stop = max(stop, entry * (1 + 1e-9))  # never at-or-below entry
+    risk = stop - entry
+    return TradePlan(entry=entry, stop=stop, tp1=entry - 2 * risk, tp2=entry - 3 * risk,
                      floored=floored)
 
 
@@ -394,6 +699,10 @@ def refine_entry_plan(daily: TradePlan, ltf: dict[str, dict], *,
                       atr_daily: float | None = None,
                       cost_pct: float | None = None) -> EntryPlan:
     """Refine a daily TradePlan with intraday features (Phase 7.5).
+
+    LONG signals only: the deterministic LTF rules below are written for the
+    long side. SHORT signals keep their daily plan and the scan discloses that
+    (R4) — a mirrored short refinement is future work, not silent behaviour.
 
     ltf maps timeframe -> compute_features dict. Rules:
       wait      mid-TF bias bearish (or data unusable) -> keep the daily plan
@@ -492,8 +801,9 @@ def weights_fingerprint() -> str:
     changes are possible without trusting file timestamps).
     """
     payload = "|".join(str(x) for x in (
-        PRESET_NAME, FX_PRESET_NAME, SCORE_THRESHOLD, RSI_OVEREXTENDED,
-        FNG_EXTREME_GREED, TREND_LEG, MOMENTUM_BASE, MOMENTUM_RISING, RSI_FULL,
+        PRESET_NAME, PRESET_NAME_SHORT, FX_PRESET_NAME, SCORE_THRESHOLD,
+        RSI_OVEREXTENDED, FNG_EXTREME_GREED, SHORT_RSI_OVEREXTENDED,
+        FNG_EXTREME_FEAR, TREND_LEG, MOMENTUM_BASE, MOMENTUM_RISING, RSI_FULL,
         RSI_HALF, VOLUME_WEIGHT, SENTIMENT_GREED, SENTIMENT_NEUTRAL, FX_MACRO_WEIGHT,
         MIN_RISK_ATR_MULT, MIN_RISK_COST_MULT, STOP_ATR_MULT, STOP_FLOOR_MULT,
         PULLBACK_RSI_MID, PULLBACK_RSI_TRIGGER,

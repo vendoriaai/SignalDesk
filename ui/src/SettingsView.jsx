@@ -34,6 +34,16 @@ export default function SettingsView({ onAuthChange }) {
     await refresh();
   }
 
+  async function toggleAiChartEntry() {
+    await saveSettings({ ai_chart_entry: !(s.ai_chart_entry !== false) });
+    await refresh();
+  }
+
+  async function toggleAiSignalGeneration() {
+    await saveSettings({ ai_signal_generation: !(s.ai_signal_generation !== false) });
+    await refresh();
+  }
+
   async function saveAllSecrets() {
     const secrets = Object.fromEntries(
       Object.entries(newSecrets).filter(([k, v]) => v && !k.startsWith("_"))
@@ -88,6 +98,14 @@ export default function SettingsView({ onAuthChange }) {
         <label className="toggle-row">
           <input type="checkbox" checked={s.entry_refinement !== false} onChange={toggleEntryRefinement} />
           Intraday entry refinement — refine signal entry/stop/TP on 30m/15m/5m/1m bars
+        </label>
+        <label className="toggle-row">
+          <input type="checkbox" checked={s.ai_chart_entry !== false} onChange={toggleAiChartEntry} />
+          AI chart read — a vision LLM watches the 1d→1m chart ladder for each signal and picks the entry (stop distance stays risk-floored)
+        </label>
+        <label className="toggle-row">
+          <input type="checkbox" checked={s.ai_signal_generation !== false} onChange={toggleAiSignalGeneration} />
+          AI signal generation — the vision LLM itself decides the ranked signals (direction + score) from the data and charts; policy gates become warnings
         </label>
       </section>
 
