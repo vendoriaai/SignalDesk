@@ -182,16 +182,22 @@ def _claim_relevant(text: str, query: str) -> bool:
 
 
 def _pick_relevant_hit(hits, query, read_article):
-    """First hit whose page actually bears on the query, as (claim, url, published).
+    """First hit whose page actually bears on the query, as
+    (lede, full_text, url, published).
 
     Relevance is judged on title+snippet (cheap — no fetching for junk hits);
     the article text is fetched only for that candidate, with the snippet as
-    fallback (R4). None when no hit is on-topic (feeds no junk to the AI)."""
+    fallback (R4). `lede` is the report-facing opening, `full_text` is what
+    the LLM reads. None when no hit is on-topic (feeds no junk to the AI)."""
     for h in hits:
         if not _claim_relevant(f"{h.title} {h.snippet}", query):
             continue
-        claim = read_article(h.url) or h.snippet or h.title
-        return claim, h.url, h.published
+        text = read_article(h.url)
+        if text:
+            claim = extract_mod.opening(text, 280)
+        else:
+            claim, text = (h.snippet or h.title)[:240], ""
+        return claim, text, h.url, h.published
     return None
 
 
@@ -221,7 +227,10 @@ def run_market_scan(req: MarketScanRequest, tools: ToolSet, bus: EventBus, run_d
         if demo_mode or not url or time.monotonic() > extract_deadline:
             return ""
         try:
-            return extract_mod.extract_article(url, tavily_api_key=tavily_key)
+            # full article text for the LLM (news is decision evidence);
+            # the report keeps a short lede derived from it
+            return extract_mod.extract_article(url, tavily_api_key=tavily_key,
+                                               max_chars=4096)
         except Exception:
             return ""
 
@@ -244,8 +253,8 @@ def run_market_scan(req: MarketScanRequest, tools: ToolSet, bus: EventBus, run_d
                 # skipping it is the R4-honest choice
                 skipped_claims += 1
                 continue
-            context_claims.append(NewsClaim(claim=picked[0], url=picked[1],
-                                            published=picked[2]))
+            context_claims.append(NewsClaim(claim=picked[0], url=picked[2],
+                                            published=picked[3], text=picked[1]))
         if skipped_claims:
             disclosures.append(
                 f"{skipped_claims} market-context hit(s) skipped: the page text "
@@ -814,7 +823,8 @@ def run_market_scan(req: MarketScanRequest, tools: ToolSet, bus: EventBus, run_d
                 bus.emit("P6", EventKind.SEARCH, q, hits=len(hits))
                 for h in hits[:1]:
                     extracted = _read_article(h.url)
-                    claim = extracted or (h.snippet or h.title)[:240]
+                    claim = ((extract_mod.opening(extracted, 280) if extracted else "")
+                             or (h.snippet or h.title)[:240])
                     cite = registry.register_direct(
                         claim, f"{sym} catalyst",
                         source_tool="web_search",

@@ -146,15 +146,15 @@ deterministic policy gates for both directions as advisory notes, the
 round-trip cost economics in R terms at the risk floor (cost-in-R and the
 break-even win rate for a 2R target), the exact last 10 daily OHLCV bars, a
 relative-strength line for every other scanned symbol, every collected
-market-news claim (article text, not a truncated join), and the macro snapshot
-(DXY/US10Y for forex/metals). Strict-JSON reply: `direction`
+market-news claim as FULL article text (up to ~4 KB per article; the report
+keeps a short lede), and the macro snapshot (DXY/US10Y for forex/metals). Strict-JSON reply: `direction`
 (LONG/SHORT/NONE), `score` (0-100 conviction, ranked), `rationale`, optional
 `invalidation` (the level that proves the trade wrong — it seeds the stop).
 
 - Signals = the AI's picks with direction ≠ NONE and score ≥ the scan
   threshold, top 5 by score. The report header and ledger mark them
   (`ai-vision-v1`, `generator="ai_vision_v1"`, AI weights hash over the prompt
-  version — currently `ai-vision-v2` — so outcomes stay separable, R7). First
+  version — currently `ai-vision-v3` — so outcomes stay separable, R7). First
   real application pre-registers trial `ai-signal-generation-v1` (frozen
   criteria, min 30 resolved signals).
 - **Policy gates are advisory warnings on this path (operator choice)**: a

@@ -276,6 +276,19 @@ def test_news_block_keeps_every_claim():
     assert "2. (2026-09-30) Funding rates reset lower" in block
 
 
+def test_news_block_prefers_full_text_and_does_not_truncate():
+    from signaldesk.report.schema import NewsClaim
+    from signaldesk.workflows.ai_generate import build_news_block
+
+    body = ("Bitcoin started October around $84,000 after a stronger September, "
+            "as softer US inflation data improved sentiment across risk assets. " * 12)
+    claims = [NewsClaim(claim="short lede", url="https://x", published="2026-10-01",
+                        text=body)]
+    block = build_news_block(claims)
+    assert "short lede" not in block          # the model reads the article, not the lede
+    assert block.endswith("risk assets.")     # full body survived (well under the cap)
+
+
 def test_cost_block_matches_r6_floor_math():
     import pandas as pd
 

@@ -219,3 +219,35 @@ def test_scheduler_runs_daily_pass_on_startup(tmp_path, monkeypatch):
                 return
             time.sleep(0.1)
     pytest.fail("scheduler never ran its startup pass")
+
+
+def test_chart_served_while_run_is_running(client):
+    """Live-trace chart images: the store row only learns the run dir at
+    finish_run, so the chart endpoint must fall back to the in-memory hub
+    dir — otherwise every P4 chart 404s until the run completes."""
+    from signaldesk.api import create_app  # noqa: F401 (app already built)
+
+    _PNG = bytes.fromhex(
+        "89504e470d0a1a0a0000000d494844520000000100000001080600000"
+        "01f15c4890000000d49444154789c626001000000ffff030000060005"
+        "57bfabd40000000049454e44ae426082"
+    )
+    store = client.app.state.store
+    hub = client.app.state.runs
+    row = store.create_run(session_id="", prompt_id="", workflow="market_scan",
+                           market="crypto", universe=["BTCUSD"])
+    run_dir = client.app.state.config.run_dir("chart-live-test")
+    charts = run_dir / "sandbox" / "output" / "charts"
+    charts.mkdir(parents=True)
+    (charts / "BTCUSD-1d.png").write_bytes(_PNG)
+    hub.set_run_dir(row.id, str(run_dir))
+
+    resp = client.get(f"/api/runs/{row.id}/charts/BTCUSD-1d.png")
+    assert resp.status_code == 200, resp.json()
+    assert resp.headers["content-type"] == "image/png"
+
+    # without a hub dir and without a persisted run_dir there is no chart
+    row2 = store.create_run(session_id="", prompt_id="", workflow="market_scan",
+                            market="crypto", universe=["BTCUSD"])
+    missing = client.get(f"/api/runs/{row2.id}/charts/BTCUSD-1d.png")
+    assert missing.status_code == 200 and missing.json() == {"error": "run not found"}

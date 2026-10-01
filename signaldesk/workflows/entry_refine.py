@@ -480,6 +480,9 @@ def apply_ai_chart_reads(
             brief += " The direction is SHORT: enter on strength into resistance, stop above."
         else:
             brief += " The direction is LONG: prefer pullback entries toward support/EMA zones."
+        if getattr(sig, "catalysts", None):
+            news_items = [c.split(" [")[0] for c in sig.catalysts[:3]]
+            brief += "\nsymbol news: " + " | ".join(news_items)
         if context:
             brief += "\n--- market context ---\n" + context
         bus.emit("P7.6", EventKind.ANALYSIS,

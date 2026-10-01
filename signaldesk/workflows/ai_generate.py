@@ -107,7 +107,7 @@ def build_brief(symbol: str, row, chg_24h: float | None, fng_value: float | None
     if universe_table:
         shared.append("--- all scanned symbols (relative strength) ---\n" + universe_table)
     if news_block:
-        shared.append("--- market news ---\n" + news_block)
+        shared.append("--- market news (full article text) ---\n" + news_block)
     if macro_note:
         shared.append("--- macro ---\n" + macro_note)
     if shared:
@@ -144,12 +144,14 @@ def _ratio(num, den) -> float:
     return _f(num) / d if math.isfinite(d) and d > 0 else float("nan")
 
 
-def build_news_block(context_claims: list, *, max_chars: int = 320) -> str:
-    """Every market-context claim the scan collected (article text or snippet),
-    not a truncated join — the AI reads the actual news."""
+def build_news_block(context_claims: list, *, max_chars: int = 4096) -> str:
+    """Every market-context claim the scan collected as FULL article text
+    where extraction succeeded (the model reads the article, not a digest);
+    the snippet remains the fallback (R4)."""
     lines = []
     for i, c in enumerate(context_claims, 1):
-        text = " ".join(str(getattr(c, "claim", "")).split())[:max_chars]
+        body = (getattr(c, "text", "") or getattr(c, "claim", "") or "").strip()
+        text = " ".join(body.split())[:max_chars]
         pub = getattr(c, "published", "") or "undated"
         lines.append(f"{i}. ({pub}) {text}" if text else f"{i}. ({pub}) [unreadable]")
     return "\n".join(lines)

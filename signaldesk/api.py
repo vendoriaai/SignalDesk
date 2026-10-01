@@ -37,11 +37,25 @@ class RunManager:
         self._events: dict[str, list[Event]] = {}
         self._status: dict[str, str] = {}
         self._queues: dict[str, list[queue.Queue]] = {}
+        self._run_dirs: dict[str, str] = {}
 
     def start(self, run_id: str) -> None:
         with self._lock:
             self._events[run_id] = []
             self._status[run_id] = "running"
+
+    def set_run_dir(self, run_id: str, run_dir: str) -> None:
+        """Remember where a live run writes its artifacts.
+
+        The store row only learns the run dir at finish_run, but chart
+        requests arrive while the run is still going — without this the
+        live trace's chart images 404 until the run completes."""
+        with self._lock:
+            self._run_dirs[run_id] = run_dir
+
+    def run_dir(self, run_id: str) -> str | None:
+        with self._lock:
+            return self._run_dirs.get(run_id)
 
     def append(self, run_id: str, event: Event) -> None:
         with self._lock:
@@ -171,6 +185,7 @@ def create_app(config: Config | None = None) -> FastAPI:
     )
     app.state.config = config
     app.state.store = store
+    app.state.runs = runs
 
     # --- tool builders -------------------------------------------------------
     def _tools(market: str, demo: bool, artifacts_dir: Path):
@@ -219,6 +234,7 @@ def create_app(config: Config | None = None) -> FastAPI:
         from .workflows.market_scan import MarketScanRequest, run_market_scan
 
         run_dir = config.run_dir(datetime.now(UTC).strftime("api-%Y%m%dT%H%M%SZ-%f") + ("-demo" if demo else ""))
+        runs.set_run_dir(run_db_id, str(run_dir))
         universe_override, wl_name = None, None
         if watchlist:
             from . import watchlists as wl_mod
@@ -257,6 +273,7 @@ def create_app(config: Config | None = None) -> FastAPI:
         from .workflows.deep_dive import DeepDiveRequest, run_deep_dive
 
         run_dir = config.run_dir(datetime.now(UTC).strftime("api-%Y%m%dT%H%M%SZ-dd-%f"))
+        runs.set_run_dir(run_db_id, str(run_dir))
         bus = EventBus(sink=lambda ev: runs.append(run_db_id, ev))
         try:
             run = run_deep_dive(
@@ -396,7 +413,8 @@ def create_app(config: Config | None = None) -> FastAPI:
             "report_md": row.report_md, "report_json": json.loads(row.report_json or "{}"),
             "events": [e.model_dump() for e in events],
             "live_status": live_status, "error": row.error, "preset": row.scoring_preset,
-            "started_at": row.started_at.isoformat(), "run_dir": row.run_dir,
+            "started_at": row.started_at.isoformat(),
+            "run_dir": row.run_dir or runs.run_dir(run_id),
         }
 
     @app.get("/api/runs/{run_id}/charts/{name}")
@@ -405,9 +423,10 @@ def create_app(config: Config | None = None) -> FastAPI:
         from fastapi.responses import FileResponse
 
         row = store.get_run(run_id)
-        if not row or not row.run_dir:
+        run_dir = (row.run_dir if row and row.run_dir else None) or runs.run_dir(run_id)
+        if not run_dir:
             return {"error": "run not found"}
-        path = (Path(row.run_dir) / "sandbox" / "output" / "charts" / f"{Path(name).stem}.png")
+        path = (Path(run_dir) / "sandbox" / "output" / "charts" / f"{Path(name).stem}.png")
         if not path.is_file():
             return {"error": "no chart"}
         return FileResponse(path, media_type="image/png")

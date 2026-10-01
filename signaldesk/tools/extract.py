@@ -103,6 +103,12 @@ def _clean_article_text(text: str) -> str:
     return text.strip()
 
 
+def opening(text: str, max_chars: int = 280) -> str:
+    """Short readable lede for reports and citations — the full cleaned text
+    is what the LLM receives; this keeps the human-facing surfaces compact."""
+    return _first_sentences(text, max_chars)
+
+
 def _tavily_extract(url: str, api_key: str, timeout: float) -> str:
     try:
         resp = httpx.post(

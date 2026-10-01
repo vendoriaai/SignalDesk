@@ -81,9 +81,10 @@ class AvoidEntry(BaseModel):
 
 
 class NewsClaim(BaseModel):
-    claim: str
+    claim: str                   # short readable lede (reports, citations)
     url: str = ""
     published: str = ""
+    text: str = ""               # full cleaned article text (the LLM reads this)
 
 
 class ScanReport(BaseModel):

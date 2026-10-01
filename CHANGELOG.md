@@ -11,8 +11,12 @@ All notable changes to SignalDesk are documented here.
   both directions as advisory notes, the round-trip cost economics in R terms
   at the risk floor (cost-in-R and the break-even win rate for a 2R target),
   the exact last 10 daily OHLCV bars, a relative-strength line for every other
-  scanned symbol, every collected market-news claim (article text, not a
-  truncated join) and the macro snapshot (DXY/US10Y for forex/metals). The
+  scanned symbol, every collected market-news claim as full article text
+  (up to ~4 KB per article, cleaned; the report keeps a short lede) and the
+  macro snapshot (DXY/US10Y for forex/metals). The system prompt treats the
+  news as directional evidence: catalysts move the AI's direction and score,
+  and news-driven calls must say so in the rationale (prompt era
+  `ai-vision-v3`). The
   Phase 7.6 entry read gets the same market context alongside its chart
   ladder. The AI weights hash moves to the new prompt version so AI-era
   outcomes stay separable (R7); the trial's criteria are unchanged.
@@ -230,6 +234,12 @@ All notable changes to SignalDesk are documented here.
 - Deep dives get the same cost floor, cost citations and ledger recording.
 
 ### Fixed
+- **Chart images show while a trace is running:** the run directory was only
+  persisted to the store at `finish_run`, so `/api/runs/{id}/charts/…` 404'd
+  for the whole live trace and every P4 chart rendered as a broken image until
+  the run completed. The server now remembers the live run dir in memory and
+  the chart endpoint falls back to it (the persisted path still wins after a
+  restart).
 - **The 200d regime gate works on live scans now:** the daily OHLCV fetch
   window was 6mo (~126 bars), so SMA200 could never compute outside demo data
   — the item-32 trend gates were permanently unevaluated and every brief

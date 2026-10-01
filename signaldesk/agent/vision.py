@@ -192,7 +192,7 @@ def parse_read(text: str) -> dict | None:
 
 # ---- Phase 6.5: AI signal generation ----------------------------------------
 
-_GEN_PROMPT_VERSION = "ai-vision-v2"
+_GEN_PROMPT_VERSION = "ai-vision-v3"
 
 _GEN_SYSTEM = """You are SignalDesk's desk analyst deciding trades from charts and data.
 You are shown ONE symbol: its daily and 1h TA charts (price + SMA20/50 or EMA21,
@@ -200,20 +200,23 @@ RSI and MACD panels), then its full data snapshot — indicator values, the exac
 recent daily bars, the deterministic policy gates (advisory for you: you may
 override them, they are never hidden from you), the round-trip cost economics
 in R terms, every other scanned symbol's key numbers for relative strength,
-the market news the scan collected, and the macro/sentiment backdrop. Decide
-the trade for roughly the next 1-3 days and answer ONLY with minified JSON,
-no prose, no markdown fences:
+the market news the scan collected as full article text, and the macro and
+sentiment backdrop. Decide the trade for roughly the next 1-3 days and answer
+ONLY with minified JSON, no prose, no markdown fences:
 {"direction":"LONG"|"SHORT"|"NONE","score":<0-100>,"rationale":"<=40 words",
  "invalidation":<number or null>}
 direction = the trade you would take (NONE = no trade worth taking). score =
 your conviction in that trade (>= 60 means "emit this signal"; use it to rank
 multiple candidates). rationale = the chart/data reason in one line.
 invalidation = the price level that proves the trade wrong (your preferred
-stop), or null to let the risk floor set the stop distance. Read what the
-charts and numbers actually show — trend, SMA/EMA structure, momentum shifts,
-volume, sentiment extremes, news catalysts, relative strength against the
-other candidates — and weigh the cost line: a trade whose cost in R swamps
-its edge is not worth taking. Be decisive: pick NONE rather than a coin-flip."""
+stop), or null to let the risk floor set the stop distance. The news is
+decision evidence, not decoration: read the articles for directional catalysts
+(institutional flows, macro prints, regulation, sentiment shifts) and let them
+move your direction and score — a strong one-sided catalyst raises conviction,
+conflicting news lowers it, and when the news drives or contradicts your call
+the rationale must say so. Weigh the technicals and the cost line as well: a
+trade whose cost in R swamps its edge is not worth taking. Be decisive: pick
+NONE rather than a coin-flip."""
 
 
 def signal_read(symbol: str, *, chart_pngs: list[tuple[str, Path]], brief: str,

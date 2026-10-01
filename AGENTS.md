@@ -113,8 +113,9 @@ durable rules beyond what the docs below state.
   `tools/` (read-only adapters; `extract.py` fetches an article's opening text
   for news claims (Tavily extract, direct-fetch fallback, snippet fallback;
   demo scans skip it) and cleans page chrome — markdown images/links, nav
-  runs — before the text reaches the LLM; off-topic search hits are skipped
-  with a disclosure in market_scan P1; `yfinance_tools.py` normalizes empty/odd
+  runs — before the text reaches the LLM; the scan passes the FULL article
+  text (~4 KB cap) to the model, reports keep a short lede; off-topic search
+  hits are skipped with a disclosure in market_scan P1; `yfinance_tools.py` normalizes empty/odd
   Yahoo frames and retries with backoff + a 20 s download timeout before
   dropping the symbol),
   `sandbox/` (matplotlib allowed in whitelist; frozen builds spawn
@@ -136,7 +137,7 @@ durable rules beyond what the docs below state.
   score per symbol and every call sees the full scan context — universe
   relative-strength table, all news claims, cost economics in R, both
   directions' policy gates as advisory notes, exact recent daily bars, macro
-  (prompt era `ai-vision-v2` in the AI weights hash, R7) — policy gates
+  (prompt era `ai-vision-v3` in the AI weights hash, R7) — policy gates
   become advisory warnings (operator choice),
   deterministic engine stays as demo/no-key/total-failure fallback, ledger
   records carry `generator`/`generator_model` + AI weights hash, first real
@@ -179,7 +180,9 @@ durable rules beyond what the docs below state.
   `watchlists.py` (local JSON store), `store.py` (SQLite/SQLModel cache),
   `userconfig.py` (keychain secrets: LLM incl. OpenRouter, search, data, Supabase tokens),
   `sync.py` (Supabase REST, consent-gated), `api.py` (FastAPI + WS + chart
-  endpoint /api/runs/{id}/charts/{name}.png + outcomes dashboard endpoints
+  endpoint /api/runs/{id}/charts/{name}.png — falls back to the in-memory hub
+  run dir while a run is live, since the store row learns run_dir only at
+  finish + outcomes dashboard endpoints
   /api/outcomes, /api/outcomes/resolve, /api/paper/{id}/fill|miss),
   `desktop.py` (pywebview shell),
   `updates.py` (update manifest check; manual download in v1), `cli.py`
