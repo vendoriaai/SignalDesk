@@ -71,11 +71,18 @@ PROFILES: dict[str, MarketProfile] = {
 }
 
 
+# Yahoo renames a crypto ticker when it collides with an equity symbol by
+# appending a numeric suffix: Stacks (STX) trades as STX4847-USD because
+# Seagate owns the STX equity ticker. Update this map as Yahoo remaps more.
+YF_CRYPTO_ALIASES = {"STX-USD": "STX4847-USD"}
+
+
 def vendor_symbol(symbol: str, market: str) -> str:
     """Internal symbol -> data-vendor ticker."""
     s = symbol.upper()
     if market == "crypto":
-        return f"{s[:-3]}-USD" if s.endswith("USD") and len(s) > 3 else s
+        ticker = f"{s[:-3]}-USD" if s.endswith("USD") and len(s) > 3 else s
+        return YF_CRYPTO_ALIASES.get(ticker, ticker)
     if market == "metals":
         return {"XAUUSD": "GC=F", "XAGUSD": "SI=F"}.get(s, s)
     if market == "forex":

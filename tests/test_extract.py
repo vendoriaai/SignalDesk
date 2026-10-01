@@ -41,6 +41,38 @@ def test_first_sentences_cuts_at_sentence_boundary():
     assert not out.endswith("x" * 10)
 
 
+# article-text cleaning (Tavily raw content carries page chrome) -----------------
+
+def test_clean_strips_markdown_images_and_keeps_prose():
+    raw = ("![]() ![CNBC TV18](https://s3.tradingview.com/news/logo/cnbc.svg) "
+           "# Bitcoin starts October near $84,000: What's driving the crypto "
+           "market today ![](https://s3-symbol-logo.tradingview.com/x.svg) "
+           "Bitcoin started October under pressure from macro flows.")
+    out = extract._clean_article_text(raw)
+    assert "![" not in out and "tradingview.com" not in out
+    assert "Bitcoin starts October near $84,000" in out
+    assert "Bitcoin started October under pressure" in out
+
+
+def test_clean_unwraps_links_and_skips_menu_chrome():
+    nav = "3 " + " ".join(f"[{w.title()}](https://www.coindesk.com/{w.lower()})"
+                          for w in ("search", "news", "stories", "markets", "finance",
+                                    "business", "tech", "video", "features", "opinion",
+                                    "poll", "learn", "events", "scores", "markets",
+                                    "news", "latest", "prices", "charts", "radio",
+                                    "apps", "terms", "privacy", "about", "follow"))
+    raw = nav + " Skip to main content Bitcoin miners weathered the post-halving squeeze."
+    out = extract._clean_article_text(raw)
+    assert "](http" not in out and "skip to main content" not in out.lower()
+    assert out.startswith("Bitcoin miners weathered")
+
+
+def test_clean_leaves_normal_prose_alone():
+    prose = ("Bitcoin funds saw record inflows last week. Analysts turned "
+             "cautiously bullish on the tape.")
+    assert extract._clean_article_text(prose) == prose
+
+
 # extract_article ----------------------------------------------------------------
 
 def test_direct_fetch_extracts_article_text(monkeypatch):
@@ -182,3 +214,120 @@ def test_scan_catalysts_quote_extracted_articles(tmp_path, monkeypatch):
     assert any(c.column == "extracted_text" for c in r.citations.values())
     assert any(c.claim.startswith("Institutional flows") for c in r.context_claims)
     assert any("News depth" in d for d in r.disclosures)
+
+
+def test_off_topic_search_hits_are_skipped(tmp_path, monkeypatch):
+    import pandas as pd
+
+    """A hit whose page has no bearing on the query (bank menus, unrelated
+    sites) must not reach the AI as 'market news' — the scan skips it (R4)."""
+    from signaldesk.agent.events import EventBus
+    from signaldesk.tools import demo
+    from signaldesk.tools.base import Source, Tool, ToolResult
+    from signaldesk.tools.search import SearchHit
+    from signaldesk.workflows import market_scan as ms
+    from signaldesk.workflows.market_scan import MarketScanRequest, ToolSet, run_market_scan
+
+    class StubMovers(Tool):
+        name = "market_movers"
+
+        def __init__(self, d):
+            self.d = d
+            d.mkdir(parents=True, exist_ok=True)
+
+        def run(self, per_side=10):
+            path = self.d / "movers.csv"
+            pd.DataFrame([{"symbol": "SUIUSD", "price": 3.6, "change_24h_pct": 9.0,
+                           "volume": 1.9e8, "market_cap": 1.0e10, "side": "gainer"}]
+                         ).to_csv(path, index=False)
+            return ToolResult(csv_files=[path], summary="stub",
+                              sources=[Source(name="stub")])
+
+    class StubOHLCV(demo.DemoOHLCVTool):
+        pass
+
+    class StubSearch:
+        name = "web_search"
+
+        def available(self):
+            return True
+
+        def batch(self, queries, max_results=3):
+            junk = SearchHit(title="Personal Banking", url="https://bank.example/menu",
+                             snippet="Checking and savings accounts, credit cards, mortgages.",
+                             published="2026-10-01")
+            good = SearchHit(title="Bitcoin market rallies on ETF flows",
+                             url="https://news.example/bitcoin",
+                             snippet="The bitcoin market climbed as ETF inflows accelerated.",
+                             published="2026-10-01")
+            return {q: [junk, good] for q in queries}
+
+    monkeypatch.setattr(ms.extract_mod, "extract_article",
+                        lambda url, **kw: "Bitcoin climbed past resistance on ETF inflows today.")
+
+    d = tmp_path / "artifacts"
+    tools = ToolSet(
+        movers=StubMovers(d), quotes=demo.DemoQuotesTool(d, "crypto"),
+        ohlcv=StubOHLCV(d, "crypto"), search=StubSearch(),
+        fear_greed=demo.DemoFearGreedTool(d), altseason=demo.DemoAltSeasonTool(d),
+    )
+    run = run_market_scan(MarketScanRequest(market="crypto", universe_size=6),
+                          tools, EventBus(), tmp_path)
+    r = run.report
+    assert r.context_claims, "the on-topic hit still becomes a claim"
+    assert all("Checking and savings" not in c.claim for c in r.context_claims)
+    assert any("Bitcoin" in c.claim for c in r.context_claims)
+    assert not any("off-topic" in d for d in r.disclosures)
+
+
+def test_all_off_topic_hits_skip_the_claim(tmp_path, monkeypatch):
+    import pandas as pd
+
+    from signaldesk.agent.events import EventBus
+    from signaldesk.tools import demo
+    from signaldesk.tools.base import Source, Tool, ToolResult
+    from signaldesk.tools.search import SearchHit
+    from signaldesk.workflows import market_scan as ms
+    from signaldesk.workflows.market_scan import MarketScanRequest, ToolSet, run_market_scan
+
+    class StubMovers(Tool):
+        name = "market_movers"
+
+        def __init__(self, d):
+            self.d = d
+            d.mkdir(parents=True, exist_ok=True)
+
+        def run(self, per_side=10):
+            path = self.d / "movers.csv"
+            pd.DataFrame([{"symbol": "SUIUSD", "price": 3.6, "change_24h_pct": 9.0,
+                           "volume": 1.9e8, "market_cap": 1.0e10, "side": "gainer"}]
+                         ).to_csv(path, index=False)
+            return ToolResult(csv_files=[path], summary="stub",
+                              sources=[Source(name="stub")])
+
+    class StubOHLCV(demo.DemoOHLCVTool):
+        pass
+
+    class StubSearch:
+        name = "web_search"
+
+        def available(self):
+            return True
+
+        def batch(self, queries, max_results=3):
+            junk = SearchHit(title="Personal Banking", url="https://bank.example/menu",
+                             snippet="Checking and savings accounts, credit cards, mortgages.",
+                             published="2026-10-01")
+            return {q: [junk] for q in queries}
+
+    d = tmp_path / "artifacts"
+    tools = ToolSet(
+        movers=StubMovers(d), quotes=demo.DemoQuotesTool(d, "crypto"),
+        ohlcv=StubOHLCV(d, "crypto"), search=StubSearch(),
+        fear_greed=demo.DemoFearGreedTool(d), altseason=demo.DemoAltSeasonTool(d),
+    )
+    run = run_market_scan(MarketScanRequest(market="crypto", universe_size=6),
+                          tools, EventBus(), tmp_path)
+    r = run.report
+    assert not r.context_claims
+    assert any("off-topic" in d for d in r.disclosures)

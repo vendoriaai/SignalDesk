@@ -194,6 +194,7 @@ def _classify_llm(prompt: str, creds: tuple[str, str], model: str | None = None)
     provider, key = creds
     try:
         import litellm
+        litellm.suppress_debug_info = True  # no "Give Feedback" footer on errors
 
         model_id = normalize_model_id(provider, model)
         if model_id is None:

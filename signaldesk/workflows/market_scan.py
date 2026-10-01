@@ -10,6 +10,7 @@ selection) → 8 critique & synthesis.
 from __future__ import annotations
 
 import math
+import re
 import shutil
 import time
 from dataclasses import dataclass
@@ -167,6 +168,33 @@ def _ai_gate_warnings(sym: str, direction: str, feat_row, fng_value: float | Non
     return out
 
 
+_QUERY_STOPWORDS = {"this", "that", "today", "week", "news", "with", "have"}
+
+
+def _claim_relevant(text: str, query: str) -> bool:
+    """True when `text` mentions any significant word of the search query."""
+    tokens = [w for w in re.findall(r"[a-z]+", query.lower())
+              if len(w) >= 4 and w not in _QUERY_STOPWORDS]
+    if not tokens:
+        return True
+    low = text.lower()
+    return any(t in low for t in tokens)
+
+
+def _pick_relevant_hit(hits, query, read_article):
+    """First hit whose page actually bears on the query, as (claim, url, published).
+
+    Relevance is judged on title+snippet (cheap — no fetching for junk hits);
+    the article text is fetched only for that candidate, with the snippet as
+    fallback (R4). None when no hit is on-topic (feeds no junk to the AI)."""
+    for h in hits:
+        if not _claim_relevant(f"{h.title} {h.snippet}", query):
+            continue
+        claim = read_article(h.url) or h.snippet or h.title
+        return claim, h.url, h.published
+    return None
+
+
 def run_market_scan(req: MarketScanRequest, tools: ToolSet, bus: EventBus, run_dir: Path) -> ScanRun:
     registry = CitationRegistry()
     disclosures: list[str] = []
@@ -204,12 +232,24 @@ def run_market_scan(req: MarketScanRequest, tools: ToolSet, bus: EventBus, run_d
             f"{dominant} price drivers today {today}",
             f"{market} market outlook this week {today}",
         ]
+        skipped_claims = 0
         for q, hits in tools.search.batch(queries).items():
             bus.emit("P1", EventKind.SEARCH, q, hits=len(hits))
-            if hits:
-                h = hits[0]
-                claim = _read_article(h.url) or h.snippet or h.title
-                context_claims.append(NewsClaim(claim=claim, url=h.url, published=h.published))
+            if not hits:
+                continue
+            picked = _pick_relevant_hit(hits, q, _read_article)
+            if picked is None:
+                # a search hit whose page has no bearing on the query (menus,
+                # unrelated sites) would feed the AI junk as "market news" —
+                # skipping it is the R4-honest choice
+                skipped_claims += 1
+                continue
+            context_claims.append(NewsClaim(claim=picked[0], url=picked[1],
+                                            published=picked[2]))
+        if skipped_claims:
+            disclosures.append(
+                f"{skipped_claims} market-context hit(s) skipped: the page text "
+                "had no bearing on the query (off-topic page).")
         if not demo_mode:
             disclosures.append(
                 "News depth: context/catalyst lines quote the linked article's "
@@ -298,9 +338,12 @@ def run_market_scan(req: MarketScanRequest, tools: ToolSet, bus: EventBus, run_d
         series: list[Path] = []
         for tf in DEFAULT_TIMEFRAMES:
             try:
+                # 1y of daily bars so SMA200 (and with it the item-32 200d
+                # regime gate) is computable — 6mo left it permanently n/a
+                # on live scans, disclosed but inert.
                 res = tools.ohlcv.run(symbol=sym,
                                       interval=tf,
-                                      period="60d" if tf in ldtf else "6mo")
+                                      period="60d" if tf in ldtf else "1y")
                 bus.emit("P3", EventKind.TOOL, f"ohlcv: {res.summary}")
                 series.append(res.csv_files[0])
             except Exception as exc:
@@ -466,6 +509,21 @@ def run_market_scan(req: MarketScanRequest, tools: ToolSet, bus: EventBus, run_d
             market_regime_reason_short = ("market regime: BTC above its 200d SMA — "
                                           "the short book stands down (item 32 mirror)")
 
+    # Full market context for the AI passes (6.5 briefs + 7.6 entry reads):
+    # every collected news claim and the macro snapshot, not a truncated join.
+    from signaldesk.workflows.ai_generate import build_news_block as _build_news_block
+
+    news_block = _build_news_block(context_claims)
+    macro_note = ""
+    if profile.preset != "crypto":
+        parts = []
+        if macro.dxy_chg_30d_pct is not None and math.isfinite(macro.dxy_chg_30d_pct):
+            parts.append(f"DXY 30d {macro.dxy_chg_30d_pct:+.2f}%")
+        if macro.us10y_chg_30d_bp is not None and math.isfinite(macro.us10y_chg_30d_bp):
+            parts.append(f"US10Y 30d {macro.us10y_chg_30d_bp:+.0f}bp")
+        if parts:
+            macro_note = "USD macro backdrop: " + ", ".join(parts)
+
     use_ai_engine = False
     generator_model = ""
     picks: dict[str, dict] = {}
@@ -509,7 +567,9 @@ def run_market_scan(req: MarketScanRequest, tools: ToolSet, bus: EventBus, run_d
                     provider=gen_provider, key=gen_key, model=gen_model,
                     model_label=generator_model, fng_value=fng_value,
                     altseason_value=altseason_value, btc_note=btc_note,
-                    context_summary=context_summary, changes_24h=changes_24h)
+                    market=market, btc_below=btc_below, btc_above=btc_above,
+                    news_block=news_block, macro_note=macro_note,
+                    changes_24h=changes_24h)
                 use_ai_engine = bool(picks)
                 if not use_ai_engine:
                     disclosures.append(
@@ -806,6 +866,11 @@ def run_market_scan(req: MarketScanRequest, tools: ToolSet, bus: EventBus, run_d
     # risk-floored (R6); ledger records carry entry_mode="ai_chart_v1" (R7).
     from signaldesk.workflows.entry_refine import maybe_ai_chart_reads
 
+    entry_context = [news_block, macro_note]
+    if btc_below:
+        entry_context.append("market regime: BTC below its 200d SMA")
+    elif btc_above:
+        entry_context.append("market regime: BTC above its 200d SMA")
     maybe_ai_chart_reads(
         signals, charts, run_dir, bus, registry, disclosures,
         demo_mode=demo_mode,
@@ -815,6 +880,7 @@ def run_market_scan(req: MarketScanRequest, tools: ToolSet, bus: EventBus, run_d
         cost_pcts={s.symbol: s.cost_pct for s in signals},
         cost_cite_ids=cost_cite_ids,
         ltf_csvs=ltf_csvs,
+        context="\n".join(x for x in entry_context if x) or None,
     )
 
     if signals:

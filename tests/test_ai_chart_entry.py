@@ -344,3 +344,38 @@ def test_market_scan_applies_ai_chart_read_end_to_end(tmp_path, monkeypatch):
 
     trial_list = trials_mod.read_trials(tmp_path)
     assert sum(1 for t in trial_list if t["name"] == "ai-chart-entry-v1") == 1
+
+
+def test_apply_ai_chart_read_brief_carries_market_context(tmp_path):
+    """Phase 7.6: the entry read sees the scan's market context (news, regime)
+    alongside the chart ladder — the AI decides on the full picture (R4)."""
+    run_dir = tmp_path
+    bus = EventBus()
+    charts = {}
+    sig = _signal()
+    _ladder(charts, sig.symbol, run_dir)
+    registry, price_cite = _registry_with_price(sig.symbol)
+
+    captured: dict[str, str] = {}
+
+    def fake(symbol, direction, *, chart_pngs, brief, provider, key, model=None,
+             errors=None):
+        captured[symbol] = brief
+        return _fake_read()(symbol, direction, chart_pngs=chart_pngs, brief=brief,
+                            provider=provider, key=key, model=model, errors=errors)
+
+    orig = vision.chart_entry_read
+    vision.chart_entry_read = fake
+    try:
+        applied = apply_ai_chart_reads(
+            [sig], charts, run_dir, bus, registry, [],
+            provider="openai", key="k", model=None, model_label="m",
+            price_cite_ids={sig.symbol: price_cite},
+            context="news: ETF flows pick up; market regime: BTC below its 200d SMA")
+    finally:
+        vision.chart_entry_read = orig
+
+    assert applied == 1
+    assert "--- market context ---" in captured[sig.symbol]
+    assert "ETF flows" in captured[sig.symbol]
+    assert "BTC below its 200d SMA" in captured[sig.symbol]

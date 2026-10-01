@@ -5,6 +5,17 @@ All notable changes to SignalDesk are documented here.
 ## [Unreleased]
 
 ### Added
+- **The AI now decides on everything the pipeline gathered (prompt era
+  `ai-vision-v2`):** every Phase 6.5 signal-generation call receives, besides
+  its own charts and indicator snapshot, the deterministic policy gates for
+  both directions as advisory notes, the round-trip cost economics in R terms
+  at the risk floor (cost-in-R and the break-even win rate for a 2R target),
+  the exact last 10 daily OHLCV bars, a relative-strength line for every other
+  scanned symbol, every collected market-news claim (article text, not a
+  truncated join) and the macro snapshot (DXY/US10Y for forex/metals). The
+  Phase 7.6 entry read gets the same market context alongside its chart
+  ladder. The AI weights hash moves to the new prompt version so AI-era
+  outcomes stay separable (R7); the trial's criteria are unchanged.
 - **AI signal generation (Phase 6.5) — the vision LLM now generates the ranked
   signals themselves, from the data and the charts:** one vision call per
   scanned symbol (daily + 1h TA charts plus a brief of features, sentiment,
@@ -219,6 +230,27 @@ All notable changes to SignalDesk are documented here.
 - Deep dives get the same cost floor, cost citations and ledger recording.
 
 ### Fixed
+- **The 200d regime gate works on live scans now:** the daily OHLCV fetch
+  window was 6mo (~126 bars), so SMA200 could never compute outside demo data
+  — the item-32 trend gates were permanently unevaluated and every brief
+  showed "SMA200 n/a". The window is 1y (TAD: gates need 200 bars).
+- **The AI reads articles, not page chrome:** Tavily's raw content came back
+  with markdown image/link wrappers and menu boilerplate; `extract.py` now
+  strips images, unwraps links and drops leading navigation runs before the
+  text reaches the model.
+- **Off-topic search hits no longer become "market news":** a hit whose
+  title/snippet bears no relation to the query (a bank menu page ranked for
+  "bitcoin price drivers") is skipped with a disclosure instead of being fed
+  to the model as a market-context claim.
+- **STX-USD downloads again:** Yahoo renamed the Stacks ticker to
+  `STX4847-USD` (numeric suffix for the collision with Seagate's STX equity),
+  so every scan carrying STX from the movers list failed its download.
+  `markets.vendor_symbol` now maps collision-renamed tickers
+  (`YF_CRYPTO_ALIASES`) for quotes, OHLCV and mark-to-market alike.
+- **No more LiteLLM footer spam:** LLM failures used to print litellm's
+  "Give Feedback / Get Help" block on every call; the call sites now set
+  `litellm.suppress_debug_info = True` and the real error already surfaces in
+  the run trace's disclosures (R4).
 - The `r_net` column in the Outcomes signals table is now sign-colored like
   the live column: green (`#3fb950`) for `>= 0`, red (`#f85149`) for negative
   — resolved values rendered as plain text before.

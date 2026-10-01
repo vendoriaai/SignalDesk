@@ -242,3 +242,104 @@ def test_demo_scan_never_calls_generation(tmp_path, monkeypatch):
     assert called["n"] == 0   # demo (offline): deterministic engine, no LLM
     assert any("AI signal generation unavailable" in d or "deterministic" in d
                for d in run.report.disclosures)
+
+
+# --- full-context brief: the AI sees everything the pipeline gathered --------
+
+
+def test_universe_table_lists_every_symbol():
+    import pandas as pd
+
+    from signaldesk.workflows.ai_generate import build_universe_table
+
+    df = pd.DataFrame({  # booleans as strings: features.csv round-trip
+        "close": [100.0, 2.0], "rsi14": [55.0, 72.0], "ret_7d": [1.0, -3.0],
+        "sma200": [90.0, 3.0], "above_sma20": ["True", "False"],
+        "above_sma50": ["True", "False"], "volume": [120.0, 50.0],
+        "volume_avg30": [100.0, 100.0],
+    }, index=["BTCUSD", "XYZUSD"])
+    table = build_universe_table(df, {"BTCUSD": 1.2, "XYZUSD": -0.5})
+    assert "BTCUSD" in table and "XYZUSD" in table
+    assert "SMA20/50/200 above/above/above" in table   # 100 > 90
+    assert "SMA20/50/200 below/below/below" in table   # 2 < 3
+    assert "+1.20%" in table
+
+
+def test_news_block_keeps_every_claim():
+    from signaldesk.report.schema import NewsClaim
+    from signaldesk.workflows.ai_generate import build_news_block
+
+    claims = [NewsClaim(claim="ETF inflows surge", published="2026-10-01"),
+              NewsClaim(claim="Funding rates reset lower", published="2026-09-30")]
+    block = build_news_block(claims)
+    assert "1. (2026-10-01) ETF inflows surge" in block
+    assert "2. (2026-09-30) Funding rates reset lower" in block
+
+
+def test_cost_block_matches_r6_floor_math():
+    import pandas as pd
+
+    from signaldesk.costs import breakeven_win_rate, cost_in_r
+    from signaldesk.workflows.ai_generate import build_cost_block
+
+    row = pd.Series({"close": 100.0, "atr14": 2.0})
+    block = build_cost_block("crypto", row, 0.1)
+    # floor stop = max(0.75 x ATR, 15 x cost) = max(1.5, 1.5) = 1.5 -> 1.5% risk
+    cost_r = cost_in_r(0.1, 1.5)
+    assert "risk-floor stop 1.50% of price" in block
+    assert f"cost = {cost_r:.2f}R" in block
+    assert f"{breakeven_win_rate(cost_r, 2.0) * 100:.0f}%" in block
+
+
+def test_policy_block_lists_gates_for_both_sides():
+    import pandas as pd
+
+    from signaldesk.workflows.ai_generate import build_policy_block
+
+    row = pd.Series({"rsi14": 80.0, "close": 80.0, "sma200": 90.0,
+                     "sma20": 79.0, "vol_ann": 40.0, "ret_7d": 2.0})
+    block = build_policy_block(row, fng_value=None, btc_below=True, btc_above=False)
+    assert "advisory" in block
+    assert "price below its 200d SMA" in block          # regime gate reason
+    assert "RSI 80.0 >= 75" in block                    # overextension guard
+    assert "BTC below its 200d SMA" in block            # book regime
+    # no 200d SMA -> the trend gate cannot judge; a mid RSI leaves no notes
+    clean = pd.Series({"rsi14": 50.0, "close": 100.0, "sma200": float("nan"),
+                       "sma20": 95.0, "vol_ann": 40.0, "ret_7d": 2.0})
+    assert build_policy_block(clean, fng_value=55.0, btc_below=False, btc_above=False) == ""
+
+
+def test_bars_digest_reads_exact_bars(tmp_path):
+    from signaldesk.workflows.ai_generate import build_bars_digest
+
+    d = tmp_path / "sandbox" / "input"
+    d.mkdir(parents=True)
+    (d / "ohlcv_TEST_1d.csv").write_text(
+        "date,open,high,low,close,volume\n"
+        "2026-09-30,1.0,1.2,0.9,1.1,1000\n"
+        "2026-10-01,1.1,1.3,1.0,1.25,1500\n")
+    digest = build_bars_digest(tmp_path, "TEST")
+    assert "recent daily bars:" in digest
+    assert "2026-10-01 O 1.100000 H 1.300000 L 1.000000 C 1.250000 V 1500" in digest
+
+def test_scan_brief_carries_full_context(tmp_path, monkeypatch):
+    monkeypatch.setattr(vision, "resolve_creds", lambda: ("openai", "k", None))
+    briefs: dict[str, str] = {}
+
+    def fake(symbol, *, chart_pngs, brief, provider, key, model=None, errors=None):
+        briefs[symbol] = brief
+        return {"direction": "NONE", "score": 10.0, "rationale": "test",
+                "invalidation": None}
+
+    monkeypatch.setattr(vision, "signal_read", fake)
+    run_market_scan(
+        MarketScanRequest(market="crypto", universe_size=6),
+        _tools(tmp_path), EventBus(), tmp_path / "runs" / "run1",
+    )
+    assert briefs, "AI path ran and collected briefs"
+    btc = briefs["BTCUSD"]
+    assert "--- all scanned symbols" in btc and "ETHUSD" in btc  # whole universe
+    assert "recent daily bars:" in btc                            # exact prices
+    assert "cost economics:" in btc and "break-even win rate" in btc
+    assert "--- market news" in btc and "demo research note" in btc  # all claims
+    assert "sentiment: Fear & Greed" in btc                       # sentiment kept

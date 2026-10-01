@@ -11,6 +11,7 @@ from signaldesk.strategy.scoring import MacroInputs, SymbolFeatures
 
 def test_vendor_symbol_mapping():
     assert vendor_symbol("BTCUSD", "crypto") == "BTC-USD"
+    assert vendor_symbol("STXUSD", "crypto") == "STX4847-USD"  # Yahoo collision rename
     assert vendor_symbol("EURUSD", "forex") == "EURUSD=X"
     assert vendor_symbol("XAUUSD", "metals") == "GC=F"
     assert vendor_symbol("XAGUSD", "metals") == "SI=F"

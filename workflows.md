@@ -137,19 +137,26 @@ the API request; a custom set via `--entry-tf 30m,15m`.
 
 When enabled (Settings `ai_signal_generation`, default on; non-demo; LLM creds
 present), **the vision LLM generates the signals themselves** — the
-deterministic preset steps aside. One vision call per scanned symbol: the
-symbol's 1d + 1h TA charts (P4) plus a data brief (close, 24h/3d/7d/30d change,
+deterministic preset steps aside. One vision call per scanned symbol, and every
+call sees the full picture: the symbol's 1d + 1h TA charts (P4) plus a
+full-context brief — its own indicator snapshot (close, 24h/3d/7d/30d change,
 RSI14, MACD histogram + slope, SMA20/50/200 position, ATR14, annualized vol,
-volume vs 30d avg, 20-bar range, Fear & Greed, altcoin season, BTC regime note,
-market-context news). Strict-JSON reply: `direction` (LONG/SHORT/NONE),
-`score` (0-100 conviction, ranked), `rationale`, optional `invalidation`
-(the level that proves the trade wrong — it seeds the stop).
+volume vs 30d avg, 20-bar range, Fear & Greed, altcoin season), the
+deterministic policy gates for both directions as advisory notes, the
+round-trip cost economics in R terms at the risk floor (cost-in-R and the
+break-even win rate for a 2R target), the exact last 10 daily OHLCV bars, a
+relative-strength line for every other scanned symbol, every collected
+market-news claim (article text, not a truncated join), and the macro snapshot
+(DXY/US10Y for forex/metals). Strict-JSON reply: `direction`
+(LONG/SHORT/NONE), `score` (0-100 conviction, ranked), `rationale`, optional
+`invalidation` (the level that proves the trade wrong — it seeds the stop).
 
 - Signals = the AI's picks with direction ≠ NONE and score ≥ the scan
   threshold, top 5 by score. The report header and ledger mark them
-  (`ai-vision-v1`, `generator="ai_vision_v1"`, AI weights hash — outcomes stay
-  separable, R7). First real application pre-registers trial
-  `ai-signal-generation-v1` (frozen criteria, min 30 resolved signals).
+  (`ai-vision-v1`, `generator="ai_vision_v1"`, AI weights hash over the prompt
+  version — currently `ai-vision-v2` — so outcomes stay separable, R7). First
+  real application pre-registers trial `ai-signal-generation-v1` (frozen
+  criteria, min 30 resolved signals).
 - **Policy gates are advisory warnings on this path (operator choice)**: a
   regime/overextension/extremes violation is shown as a ⚠ confluence line with
   its citation and the scan discloses it — it does not refuse the AI's pick.
@@ -174,8 +181,10 @@ a. The full chart ladder is rendered and streamed as `chart` events: the 1d
    intraday timeframe (30m/15m/5m/1m; SHORTs fetch the same ladder).
 b. One vision-capable LLM call per signal (`agent/vision.py`, LiteLLM, the
    user's configured provider/model): the ladder is sent as labelled images,
-   daily → 1m, with the direction and draft plan. The model returns strict
-   JSON — per-timeframe trend reads, the chosen entry, an optional stop
+   daily → 1m, with the direction and draft plan plus the scan's market
+   context (every collected news claim, the macro snapshot, the BTC regime)
+   so the entry decision sees what the generation pass saw. The model returns
+   strict JSON — per-timeframe trend reads, the chosen entry, an optional stop
    level, a rationale, a confidence — streamed into the trace as `analysis`
    (🧠) events before the report.
 c. The AI chooses only the entry level. `scoring.reconcile_ai_entry` keeps

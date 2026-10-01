@@ -228,7 +228,8 @@ signaldesk/
   universe.py                                    # liquidity screen + survivorship audit (item 29)
   trials.py                                      # pre-registered rule changes (item 33)
   learn.py                                       # meta-label shadow model (item 38)
-  markets.py  watchlists.py  store.py  userconfig.py  sync.py
+  markets.py                                    # profiles + vendor mapping (Yahoo collision aliases)
+  watchlists.py  store.py  userconfig.py  sync.py
   ui/                   # React app (dist/ served by api.py)
   evals/                # planner/workflow corpus runner
 tests/                  # pytest suite (+ new modules must add coverage here)

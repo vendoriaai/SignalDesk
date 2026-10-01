@@ -112,9 +112,11 @@ durable rules beyond what the docs below state.
   strict-JSON, None on any failure),
   `tools/` (read-only adapters; `extract.py` fetches an article's opening text
   for news claims (Tavily extract, direct-fetch fallback, snippet fallback;
-  demo scans skip it); `yfinance_tools.py` normalizes empty/odd Yahoo
-  frames and retries with backoff + a 20 s download timeout before dropping
-  the symbol),
+  demo scans skip it) and cleans page chrome — markdown images/links, nav
+  runs — before the text reaches the LLM; off-topic search hits are skipped
+  with a disclosure in market_scan P1; `yfinance_tools.py` normalizes empty/odd
+  Yahoo frames and retries with backoff + a 20 s download timeout before
+  dropping the symbol),
   `sandbox/` (matplotlib allowed in whitelist; frozen builds spawn
   `sandbox-exec` child mode; children import the first-party package via a
   pinned PYTHONPATH so a stale editable install can't break them; per-call
@@ -131,16 +133,21 @@ durable rules beyond what the docs below state.
   (item 32) mirrored for shorts),
   `workflows/` (market_scan — dual-side scoring/gating with the Phase 6.5 AI
   signal-generation path on top: the vision LLM decides selection/direction/
-  score per symbol, policy gates become advisory warnings (operator choice),
+  score per symbol and every call sees the full scan context — universe
+  relative-strength table, all news claims, cost economics in R, both
+  directions' policy gates as advisory notes, exact recent daily bars, macro
+  (prompt era `ai-vision-v2` in the AI weights hash, R7) — policy gates
+  become advisory warnings (operator choice),
   deterministic engine stays as demo/no-key/total-failure fallback, ledger
   records carry `generator`/`generator_model` + AI weights hash, first real
   application pre-registers trial `ai-signal-generation-v1`, Settings toggle
   `ai_signal_generation`; deep_dive; entry_refine — Phase 7.5 refinement +
   Phase 7.6 AI chart read: every chosen pair's full chart ladder
   (1d/1h/30m/15m/5m/1m) renders and streams into the trace before the
-  signals; the read streams as `analysis` events, ledger records carry
-  `entry_mode="ai_chart_v1"`, first real application pre-registers trial
-  `ai-chart-entry-v1`; Settings toggle `ai_chart_entry`), `report/`,
+  signals, and the read's brief carries the scan's market context (news,
+  macro, BTC regime); the read streams as `analysis` events, ledger records
+  carry `entry_mode="ai_chart_v1"`, first real application pre-registers
+  trial `ai-chart-entry-v1`; Settings toggle `ai_chart_entry`), `report/`,
   `costs.py` (round-trip cost assumptions + cost-in-R + break-even win rate),
   `ledger.py` (append-only `signals.jsonl`: actionable levels, snapshot hash,
   weights fingerprint, demo flag; risk unit is |entry − stop|; `backfill()`

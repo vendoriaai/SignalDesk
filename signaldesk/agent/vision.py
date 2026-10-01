@@ -117,6 +117,7 @@ def chart_entry_read(symbol: str, direction: str, *, chart_pngs: list[tuple[str,
 
     try:
         import litellm
+        litellm.suppress_debug_info = True  # no "Give Feedback" footer on errors
 
         resp = litellm.completion(
             model=model_id(provider, model),
@@ -191,13 +192,17 @@ def parse_read(text: str) -> dict | None:
 
 # ---- Phase 6.5: AI signal generation ----------------------------------------
 
-_GEN_PROMPT_VERSION = "ai-vision-v1"
+_GEN_PROMPT_VERSION = "ai-vision-v2"
 
 _GEN_SYSTEM = """You are SignalDesk's desk analyst deciding trades from charts and data.
 You are shown ONE symbol: its daily and 1h TA charts (price + SMA20/50 or EMA21,
-RSI and MACD panels), then a text snapshot of its indicators, market sentiment
-and today's news context. Decide the trade for roughly the next 1-3 days and
-answer ONLY with minified JSON, no prose, no markdown fences:
+RSI and MACD panels), then its full data snapshot — indicator values, the exact
+recent daily bars, the deterministic policy gates (advisory for you: you may
+override them, they are never hidden from you), the round-trip cost economics
+in R terms, every other scanned symbol's key numbers for relative strength,
+the market news the scan collected, and the macro/sentiment backdrop. Decide
+the trade for roughly the next 1-3 days and answer ONLY with minified JSON,
+no prose, no markdown fences:
 {"direction":"LONG"|"SHORT"|"NONE","score":<0-100>,"rationale":"<=40 words",
  "invalidation":<number or null>}
 direction = the trade you would take (NONE = no trade worth taking). score =
@@ -206,8 +211,9 @@ multiple candidates). rationale = the chart/data reason in one line.
 invalidation = the price level that proves the trade wrong (your preferred
 stop), or null to let the risk floor set the stop distance. Read what the
 charts and numbers actually show — trend, SMA/EMA structure, momentum shifts,
-volume, sentiment extremes, news catalysts — and be decisive: pick NONE rather
-than a coin-flip."""
+volume, sentiment extremes, news catalysts, relative strength against the
+other candidates — and weigh the cost line: a trade whose cost in R swamps
+its edge is not worth taking. Be decisive: pick NONE rather than a coin-flip."""
 
 
 def signal_read(symbol: str, *, chart_pngs: list[tuple[str, Path]], brief: str,
@@ -236,6 +242,7 @@ def signal_read(symbol: str, *, chart_pngs: list[tuple[str, Path]], brief: str,
 
     try:
         import litellm
+        litellm.suppress_debug_info = True  # no "Give Feedback" footer on errors
 
         resp = litellm.completion(
             model=model_id(provider, model),

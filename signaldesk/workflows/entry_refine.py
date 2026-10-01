@@ -379,6 +379,7 @@ def maybe_ai_chart_reads(
     cost_pcts: dict[str, float] | None = None,
     cost_cite_ids: dict[str, str] | None = None,
     ltf_csvs: dict[str, dict[str, Path]] | None = None,
+    context: str | None = None,
 ) -> int:
     """Phase 7.6 guard + entry point: settings toggle, demo skip, creds, then
     `apply_ai_chart_reads`. Returns the number of signals whose entry was
@@ -414,7 +415,7 @@ def maybe_ai_chart_reads(
             provider=provider, key=key, model=model, model_label=model_label,
             price_cite_ids=price_cite_ids, atr_cite_ids=atr_cite_ids,
             atr_daily=atr_daily, cost_pcts=cost_pcts, cost_cite_ids=cost_cite_ids,
-            ltf_csvs=ltf_csvs)
+            ltf_csvs=ltf_csvs, context=context)
     except Exception as exc:
         disclosures.append(f"AI chart read failed: {exc} — deterministic plans kept (R4).")
         return 0
@@ -441,12 +442,14 @@ def apply_ai_chart_reads(
     cost_pcts: dict[str, float] | None = None,
     cost_cite_ids: dict[str, str] | None = None,
     ltf_csvs: dict[str, dict[str, Path]] | None = None,
+    context: str | None = None,
 ) -> int:
     """One vision call per signal over the full chart ladder; the chosen entry
     replaces the deterministic level after `scoring.reconcile_ai_entry` clamps
     the stop geometry. Every asserted number is cited (R1); the read itself is
     streamed as ANALYSIS events so the trace shows the AI's chart read before
-    the report emits the signals."""
+    the report emits the signals. `context` carries the scan's market context
+    (news, macro, regime) so the entry decision sees it too."""
     from signaldesk.agent import vision as vision_mod
 
     price_cite_ids = price_cite_ids or {}
@@ -477,6 +480,8 @@ def apply_ai_chart_reads(
             brief += " The direction is SHORT: enter on strength into resistance, stop above."
         else:
             brief += " The direction is LONG: prefer pullback entries toward support/EMA zones."
+        if context:
+            brief += "\n--- market context ---\n" + context
         bus.emit("P7.6", EventKind.ANALYSIS,
                  f"watching {sig.symbol} {sig.direction}: {len(ladder)} charts "
                  f"({', '.join(k for k, _ in ladder)})",

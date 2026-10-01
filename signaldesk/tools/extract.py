@@ -70,6 +70,39 @@ def _first_sentences(text: str, max_chars: int) -> str:
     return out or text[:max_chars].rsplit(" ", 1)[0]
 
 
+_NAV_PHRASES = ("skip to main content", "skip to content", "skip navigation")
+
+
+def _clean_article_text(text: str) -> str:
+    """Readable prose for the LLM: pages fetched via Tavily come back with
+    markdown chrome (image tags, link wrappers, menu/opening boilerplate)
+    that would otherwise be fed to the model as if it were the article."""
+    text = re.sub(r"!\[[^\]]*\]\([^)]*\)", " ", text)          # images: no prose
+    text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)       # links -> label
+    for phrase in _NAV_PHRASES:
+        text = re.sub(rf"(?i)\b{re.escape(phrase)}\b[:\s]*", " ", text)
+    text = re.sub(r"[ \t]+", " ", text)
+    # leading menu/accessibility chrome: nav runs are long stretches of single
+    # capitalized labels (plus bare symbols/digits). When the opening holds a
+    # run of >= 15 such words, drop it — but re-attach the run's last word,
+    # which is usually the article's subject ("… Follow | Bitcoin miners …").
+    def _chrome_like(word: str) -> bool:
+        w = word.strip(",.;:!?\"'()")
+        if not w:
+            return True
+        if w.isalpha():
+            return w[0].isupper()   # a lowercase word ends the run
+        return len(w) <= 3 or w.upper() == w
+
+    words = text.split(" ")
+    run = 0
+    while run < len(words) and _chrome_like(words[run]):
+        run += 1
+    if run >= 15:
+        return " ".join(words[max(0, run - 1):]).strip()
+    return text.strip()
+
+
 def _tavily_extract(url: str, api_key: str, timeout: float) -> str:
     try:
         resp = httpx.post(
@@ -113,4 +146,4 @@ def extract_article(url: str, *, tavily_api_key: str | None = None,
         text = _direct_fetch(url, timeout)
     if not text:
         return ""
-    return _first_sentences(text, max_chars)
+    return _first_sentences(_clean_article_text(text), max_chars)
