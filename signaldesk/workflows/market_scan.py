@@ -870,6 +870,18 @@ def run_market_scan(req: MarketScanRequest, tools: ToolSet, bus: EventBus, run_d
             "signals keep their daily plan unless the Phase 7.6 AI chart read "
             "chooses their entry.")
 
+    # ---- SMC / price-action evidence (advisory; no score or plan changes) -----
+    from signaldesk.strategy.confluence import (
+        append_market_intelligence,
+        enrich_signals_with_smc_pa,
+    )
+
+    # Analyse all available symbols, even when no trade qualifies.
+    append_market_intelligence(ohlcv_paths, ltf_csvs, disclosures)
+
+    # Enrich qualified signals without changing their plans or scores.
+    enrich_signals_with_smc_pa(signals, ohlcv_paths, ltf_csvs, disclosures)
+
     # ---- Phase 7.6: AI chart read (vision entry selection) --------------------
     # The full chart ladder (1d -> 1m) for every chosen pair was streamed above;
     # a vision-capable LLM now picks the entry per signal. Stop geometry stays
